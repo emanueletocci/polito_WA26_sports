@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS "users" (
     "password_hash"     TEXT NOT NULL,
     "salt"              TEXT NOT NULL,
     "totp_secret"       TEXT,
+    "last_totp_step"    INTEGER,        
     "score"             INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY("id" AUTOINCREMENT)
 );
@@ -138,19 +139,19 @@ INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "av
 --   user3@example.com -> Password3!
 --   user4@example.com -> Password4!   (2FA enabled)
 -- Hashes generated with scrypt (n=16384, r=8, p=1, dklen=32), random 16-byte salt.
-INSERT INTO "users" ("id", "name", "surname", "email", "password_hash", "salt", "totp_secret") VALUES
+INSERT INTO "users" ("id", "name", "surname", "email", "password_hash", "salt", "totp_secret","last_totp_step") VALUES
     (1, 'Emanuele',    'Tocci', 's363290@studenti.polito.it',
         '704e1fe979a047436eb7d1766e782e72a76df6da80da3e1f202c37e42208cf8',
-        '8f650e1213b07092045b20d53fcab067', NULL),
+        '8f650e1213b07092045b20d53fcab067', NULL, NULL),
     (2, 'Marco',   'Rossi',   'user2@example.com',
         '929ac971b0938185a8b15995801ba023b90968f8c98813b0da16b2d6f7009b6',
-        '7d6342853652c5951b8bb683a404922e', 'LXBSMDTMSP2I5XFXIYRGFVWSFI'),
+        '7d6342853652c5951b8bb683a404922e', 'LXBSMDTMSP2I5XFXIYRGFVWSFI', NULL),
     (3, 'Giulia',  'Verdi',   'user3@example.com',
         '28f2ff0d3be5d62176bb9543be0494f4f5764b3958d96a5877b0cf2ed7b4378',
-        '9f05bb88125fdf55b89aabc279d63e84', NULL),
+        '9f05bb88125fdf55b89aabc279d63e84', NULL, NULL),
     (4, 'Luca',    'Neri',    'user4@example.com',
         'af885fc18e91ec720aae870927f6d8d8f423748ec3150f5a165a3efb9ddbee4',
-        '5e931bb30b7e1a50ffdbf0002fe3c3be', 'LXBSMDTMSP2I5XFXIYRGFVWSFI');
+        '5e931bb30b7e1a50ffdbf0002fe3c3be', 'LXBSMDTMSP2I5XFXIYRGFVWSFI', NULL);
 
 
 -- ============================================================
