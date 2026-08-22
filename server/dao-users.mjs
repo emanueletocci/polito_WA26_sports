@@ -49,6 +49,7 @@ const getUser = (email, password) => {
   });
 };
 
+// TODO: testare
 // This function updates the lastTotpStep for the user in the database.
 const updateLastTotpStep = (userId, lastTotpStep) => {
   return new Promise((resolve, reject) => {

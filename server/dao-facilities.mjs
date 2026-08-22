@@ -24,6 +24,24 @@ const getFreeFacilities = () => {
 	});
 };
 
+// Returns the list of all currently booked facilities, each with its type.
+// The client can derive the count per type (for the public home page) by grouping
+// this array, and can filter by facilityTypeId when the user selects a facility directly.
+const getReservedFacilities = () => {
+	return new Promise((resolve, reject) => {
+		const sql = `
+      SELECT f.code, ft.id AS facilityTypeId, ft.name AS facilityTypeName
+      FROM facilities f
+      JOIN facility_types ft ON f.facility_type_id = ft.id
+      WHERE f.is_booked = 1
+    `;
+		db.all(sql, [], (err, rows) => {
+			if (err) reject(err);
+			else resolve(rows);
+		});
+	});
+};
+
 // Returns the list of all facility types (id, name) - useful for dropdowns/validation.
 const getAllFacilityTypes = () => {
 	return new Promise((resolve, reject) => {
@@ -61,6 +79,7 @@ const getOneFreeFacilityByType = (facilityTypeId) => {
 	});
 };
 
+// TODO: testare
 // Marks a facility as booked (1) or free (0).
 const setFacilityBooked = (code, booked) => {
 	return new Promise((resolve, reject) => {
@@ -126,6 +145,7 @@ const getEquipmentById = (id) => {
 	});
 };
 
+// TODO: testare
 // Decreases the available quantity of an equipment type by a given amount.
 // Only succeeds (changes = 1) if enough quantity is available - this is an atomic check-and-update
 // that prevents overbooking equipment under concurrent requests.
@@ -145,6 +165,7 @@ const decrementEquipmentAvailability = (equipmentId, quantity) => {
 	});
 };
 
+// TODO: testare
 // Increases the available quantity of an equipment type by a given amount (e.g. on reservation deletion).
 const incrementEquipmentAvailability = (equipmentId, quantity) => {
 	return new Promise((resolve, reject) => {
@@ -160,6 +181,7 @@ const incrementEquipmentAvailability = (equipmentId, quantity) => {
 
 export default {
 	getFreeFacilities,
+	getReservedFacilities,
 	getAllFacilityTypes,
 	getFacilityByCode,
 	getOneFreeFacilityByType,

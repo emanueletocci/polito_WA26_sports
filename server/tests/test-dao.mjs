@@ -2,8 +2,8 @@
    Esegui con: node test-dao.mjs
    Assicurati che database.db sia nella stessa cartella (o aggiorna il path in db.mjs). */
 
-import userDao from './dao-users.mjs';
-import facilityDao from './dao-facilities.mjs';
+import userDao from '../dao-users.mjs';
+import facilityDao from '../dao-facilities.mjs';
 
 async function main() {
   console.log('=== Test connessione DB + DAO ===\n');
@@ -13,13 +13,13 @@ async function main() {
     const freeFacilities = await facilityDao.getFreeFacilities();
     console.log(freeFacilities);
 
-    console.log('\n--- getEquipmentAvailability() ---');
-    const equipment = await facilityDao.getEquipmentAvailability();
-    console.log(equipment);
+    console.log('--- getReservedFacilities() ---');
+    const reservedFacilities = await facilityDao.getReservedFacilities();
+    console.log(reservedFacilities);
 
-    console.log('\n--- getEquipmentRulesForFacilityType(1) [tennis] ---');
-    const rules = await facilityDao.getEquipmentRulesForFacilityType(1);
-    console.log(rules);
+    console.log('\n--- getAllFacilityTypes() ---');
+    const facilityTypes = await facilityDao.getAllFacilityTypes();
+    console.log(facilityTypes);
 
     console.log('\n--- getFacilityByCode("T1") ---');
     const facility = await facilityDao.getFacilityByCode('T1');
@@ -28,6 +28,18 @@ async function main() {
     console.log('\n--- getOneFreeFacilityByType(1) [tennis] ---');
     const oneFree = await facilityDao.getOneFreeFacilityByType(1);
     console.log(oneFree);
+
+    console.log('\n--- getEquipmentById(1) [tennis] ---');
+    const equipment = await facilityDao.getEquipmentById(1);
+    console.log(equipment);
+
+    console.log('\n--- getEquipmentAvailability() ---');
+    const equipmentAvailability = await facilityDao.getEquipmentAvailability();
+    console.log(equipmentAvailability);
+
+    console.log('\n--- getEquipmentRulesForFacilityType(1) [tennis] ---');
+    const rules = await facilityDao.getEquipmentRulesForFacilityType(1);
+    console.log(rules);
 
     console.log('\n--- getUser (credenziali corrette) ---');
     const validUser = await userDao.getUser('s363290@studenti.polito.it', 'Password1!');
