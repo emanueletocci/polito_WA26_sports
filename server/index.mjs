@@ -15,8 +15,8 @@ import userDao from "./dao-users.mjs"; // module for accessing the users table i
 import reservationDao from "./dao-reservations.mjs";
 import facilityDao from "./dao-facilities.mjs";
 
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc.js';
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
 dayjs.extend(utc);
 
 const responseDelay = 1000;
@@ -114,6 +114,7 @@ function verifyTotpToken(user, token) {
 
 /** Defining authentication verification middleware **/
 const isLoggedIn = (req, res, next) => {
+	// it checks if a session with the current user exists (i.e., if the user is logged in)
 	if (req.isAuthenticated()) {
 		return next();
 	}
@@ -241,13 +242,16 @@ app.get("/api/equipment", async (req, res) => {
 
 /*** Reservations APIs (richiedono login) ***/
 
+// TODO: CONTROLLARE
 // GET /api/reservations
 // Returns the list of the logged-in user's active reservations, each with its rented equipment.
 app.get("/api/reservations", isLoggedIn, async (req, res) => {
 	try {
+		// get all active reservations for the current user
 		const reservations = await reservationDao.getActiveReservationsByUser(
 			req.user.id,
 		);
+		// for each reservation, also load the equipment rented with it
 		const withEquipment = await Promise.all(
 			reservations.map(async (r) => ({
 				...r,
@@ -261,52 +265,29 @@ app.get("/api/reservations", isLoggedIn, async (req, res) => {
 	}
 });
 
+// TODO: CONTROLLARE
 // POST /api/reservations
-// Creates a new reservation: picks a facility (direct selection or automatic assignment),
-// checks the 30-second rebooking cooldown, validates the requested equipment, then persists everything.
+// Creates a new reservation for the logged-in user, with optional equipment.
+// The request body must contain: facilityTypeId, optional facilityCode, and optional equipment array.
 app.post("/api/reservations", isLoggedIn, async (req, res) => {
 	const { facilityTypeId, facilityCode, equipment } = req.body;
 
 	try {
-		// 30-second cooldown check (done in JS, comparing timestamps).
-		const lastRelease = await reservationDao.getLastReleaseTime(
-			req.user.id,
-			facilityTypeId,
-		);
-		if (lastRelease) {
-			const secondsPassed = (Date.now() - new Date(lastRelease + "Z")) / 1000;
-			if (secondsPassed < REBOOKING_COOLDOWN_SECONDS) {
-				return res.status(422).json({
-					error: "Too early to reserve again for this facility type. Please wait a few seconds.",
-				});
-			}
+		// Block if the user just released a facility of this type recently.
+		if (await isRebookingTooEarly(req.user.id, facilityTypeId)) {
+			return res
+				.status(422)
+				.json({ error: "Too early to reserve again for this facility type." });
 		}
 
-		// Facility selection: direct (facilityCode given) or automatic assignment.
-		let chosenFacilityCode = facilityCode;
-		if (chosenFacilityCode) {
-			const facility = await facilityDao.getFacilityByCode(chosenFacilityCode);
-			if (
-				facility.error ||
-				facility.isBooked ||
-				facility.facilityTypeId !== facilityTypeId
-			) {
-				return res.status(422).json({
-					error:
-						"Not enough facilities: the selected facility is not available.",
-				});
-			}
-		} else {
-			const free = await facilityDao.getOneFreeFacilityByType(facilityTypeId);
-			if (!free) {
-				return res
-					.status(422)
-					.json({ error: "Not enough facilities of this type." });
-			}
-			chosenFacilityCode = free.code;
+		// Pick the facility to book (direct choice or auto-assigned).
+		const facilityResult = await resolveFacility(facilityTypeId, facilityCode);
+		if (facilityResult.error) {
+			return res.status(422).json({ error: facilityResult.error });
 		}
+		const chosenFacilityCode = facilityResult.code;
 
-		// 3. Equipment validation (mandatory minimums, optional/extra rules, negative score, availability).
+		// Check the requested equipment against the rules for this facility type.
 		const rules =
 			await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
 		const validation = validateEquipmentRequest(
@@ -318,11 +299,12 @@ app.post("/api/reservations", isLoggedIn, async (req, res) => {
 			return res.status(422).json({ error: validation.error });
 		}
 
-		// 4. Persist: create the reservation, add each equipment line, update availability.
+		// Everything is valid: create the reservation...
 		const reservationId = await reservationDao.createReservation(
 			req.user.id,
 			chosenFacilityCode,
 		);
+		// ...attach each requested equipment item and reduce its stock...
 		for (const line of validation.lines) {
 			await reservationDao.addRent(
 				reservationId,
@@ -334,8 +316,10 @@ app.post("/api/reservations", isLoggedIn, async (req, res) => {
 				line.quantity,
 			);
 		}
+		// ...and mark the facility as booked.
 		await facilityDao.setFacilityBooked(chosenFacilityCode, true);
 
+		// Return the newly created reservation together with its equipment.
 		const created = await reservationDao.getReservationById(reservationId);
 		const createdEquipment =
 			await reservationDao.getRentsByReservation(reservationId);
@@ -366,6 +350,105 @@ function clientUserInfo(req) {
 		canDoTotp: user.totpSecret ? true : false,
 		isTotp: req.session.method === "totp",
 	};
+}
+
+/** Utility functions ***/
+// Returns { code } if a valid facility is found, otherwise { error }.
+async function resolveFacility(facilityTypeId, facilityCode) {
+	// Case 1: the user picked a specific facility.
+	if (facilityCode) {
+		const facility = await facilityDao.getFacilityByCode(facilityCode);
+		if (
+			facility.error || // no facility with this code
+			facility.isBooked || // facility exists but is already taken
+			facility.facilityTypeId !== facilityTypeId // wrong type for this code
+		) {
+			return {
+				error: "Not enough facilities: the selected facility is not available.",
+			};
+		}
+		return { code: facilityCode };
+	}
+	// Case 2: no code given, auto-assign any free facility of the requested type.
+	const free = await facilityDao.getOneFreeFacilityByType(facilityTypeId);
+	if (!free) {
+		return { error: "Not enough facilities of this type." };
+	}
+	return { code: free.code };
+}
+
+// Checks whether the 30-second rebooking cooldown blocks this request.
+async function isRebookingTooEarly(userId, facilityTypeId) {
+	// When did this user last release a facility of this type?
+	const lastRelease = await reservationDao.getLastReleaseTime(
+		userId,
+		facilityTypeId,
+	);
+	// No previous release found, so there's no cooldown to wait for.
+	if (!lastRelease) return false;
+	const secondsPassed = dayjs().diff(dayjs(lastRelease), "second");
+	// Too early if not enough time has passed since the last release.
+	return secondsPassed < REBOOKING_COOLDOWN_SECONDS;
+}
+
+// TODO: CONTROLLARE, COSA É STO ARRAY VUOTO
+// Validates the equipment quantities requested by the user against the rules of a facility type.
+// - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
+// - requested: array from req.body.equipment, e.g. [{ equipmentId, quantity }, ...]
+// - userScore: the user's current score (negative scores restrict to mandatory minimums only)
+// Returns { error: 'message' } on the first violation found, or { lines: [...] } with the
+// final list of { equipmentId, name, quantity } to persist (only lines with quantity > 0).
+function validateEquipmentRequest(rules, requested, userScore) {
+	const requestedMap = new Map(
+		(requested || []).map((e) => [e.equipmentId, e.quantity]),
+	);
+	const lines = [];
+
+	for (const rule of rules) {
+		const qty = requestedMap.get(rule.id) || 0;
+
+		if (rule.minQuantity > 0) {
+			// Mandatory equipment: must always be present with at least the minimum quantity.
+			if (qty < rule.minQuantity) {
+				return {
+					error: `Not enough ${rule.name}: at least ${rule.minQuantity} required.`,
+				};
+			}
+			// Negative score users may not request MORE than the mandatory minimum.
+			if (userScore < 0 && qty > rule.minQuantity) {
+				return {
+					error: `Negative score: only the mandatory minimum quantity of ${rule.name} is allowed.`,
+				};
+			}
+		} else {
+			// Optional equipment: negative score users may not request it at all.
+			if (userScore < 0 && qty > 0) {
+				return {
+					error: `Negative score: optional equipment (${rule.name}) is not allowed.`,
+				};
+			}
+		}
+
+		if (qty > rule.availableQuantity) {
+			return { error: `Not enough equipment of type ${rule.name} available.` };
+		}
+
+		if (qty > 0) {
+			lines.push({ equipmentId: rule.id, name: rule.name, quantity: qty });
+		}
+	}
+
+	// Reject any requested equipment id that is not part of this facility type's rules.
+	const validIds = new Set(rules.map((r) => r.id));
+	for (const e of requested || []) {
+		if (!validIds.has(e.equipmentId)) {
+			return {
+				error: `Equipment id ${e.equipmentId} is not valid for this facility type.`,
+			};
+		}
+	}
+
+	return { lines };
 }
 
 // Activating the server
