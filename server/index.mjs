@@ -15,6 +15,10 @@ import userDao from "./dao-users.mjs"; // module for accessing the users table i
 import reservationDao from "./dao-reservations.mjs";
 import facilityDao from "./dao-facilities.mjs";
 
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
+dayjs.extend(utc);
+
 const responseDelay = 1000;
 
 /*** init express and set-up the middlewares ***/
@@ -257,10 +261,90 @@ app.get("/api/reservations", isLoggedIn, async (req, res) => {
 	}
 });
 
-// TODO: POST /api/reservations
-// Crea una nuova prenotazione, con la relativa attrezzatura minima/extra.
-// (da collegare a reservationDao quando pronto - qui vanno i controlli su
-//  disponibilità impianto, disponibilità attrezzatura, score negativo, cooldown 30s)
+// POST /api/reservations
+// Creates a new reservation: picks a facility (direct selection or automatic assignment),
+// checks the 30-second rebooking cooldown, validates the requested equipment, then persists everything.
+app.post("/api/reservations", isLoggedIn, async (req, res) => {
+	const { facilityTypeId, facilityCode, equipment } = req.body;
+
+	try {
+		// 30-second cooldown check (done in JS, comparing timestamps).
+		const lastRelease = await reservationDao.getLastReleaseTime(
+			req.user.id,
+			facilityTypeId,
+		);
+		if (lastRelease) {
+			const secondsPassed = (Date.now() - new Date(lastRelease + "Z")) / 1000;
+			if (secondsPassed < REBOOKING_COOLDOWN_SECONDS) {
+				return res.status(422).json({
+					error: "Too early to reserve again for this facility type. Please wait a few seconds.",
+				});
+			}
+		}
+
+		// Facility selection: direct (facilityCode given) or automatic assignment.
+		let chosenFacilityCode = facilityCode;
+		if (chosenFacilityCode) {
+			const facility = await facilityDao.getFacilityByCode(chosenFacilityCode);
+			if (
+				facility.error ||
+				facility.isBooked ||
+				facility.facilityTypeId !== facilityTypeId
+			) {
+				return res.status(422).json({
+					error:
+						"Not enough facilities: the selected facility is not available.",
+				});
+			}
+		} else {
+			const free = await facilityDao.getOneFreeFacilityByType(facilityTypeId);
+			if (!free) {
+				return res
+					.status(422)
+					.json({ error: "Not enough facilities of this type." });
+			}
+			chosenFacilityCode = free.code;
+		}
+
+		// 3. Equipment validation (mandatory minimums, optional/extra rules, negative score, availability).
+		const rules =
+			await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
+		const validation = validateEquipmentRequest(
+			rules,
+			equipment,
+			req.user.score,
+		);
+		if (validation.error) {
+			return res.status(422).json({ error: validation.error });
+		}
+
+		// 4. Persist: create the reservation, add each equipment line, update availability.
+		const reservationId = await reservationDao.createReservation(
+			req.user.id,
+			chosenFacilityCode,
+		);
+		for (const line of validation.lines) {
+			await reservationDao.addRent(
+				reservationId,
+				line.equipmentId,
+				line.quantity,
+			);
+			await facilityDao.decrementEquipmentAvailability(
+				line.equipmentId,
+				line.quantity,
+			);
+		}
+		await facilityDao.setFacilityBooked(chosenFacilityCode, true);
+
+		const created = await reservationDao.getReservationById(reservationId);
+		const createdEquipment =
+			await reservationDao.getRentsByReservation(reservationId);
+		res.json({ ...created, equipment: createdEquipment });
+	} catch (err) {
+		console.error(err);
+		res.status(500).json({ error: "Database error" });
+	}
+});
 
 // TODO: PUT /api/reservations/:id
 // Modifica l'attrezzatura di una prenotazione esistente (solo extra, non il minimo obbligatorio).
