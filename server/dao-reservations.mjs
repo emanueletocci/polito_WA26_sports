@@ -70,20 +70,23 @@ const cancelReservation = (id) => {
 	});
 };
 
-// Checks whether the given user released a facility of the given type within the last N seconds.
-// Used to enforce the 30-second rebooking cooldown rule.
-const hasRecentRelease = (userId, facilityTypeId, cooldownSeconds) => {
+// TODO: Controllare utilitá
+// Returns the timestamp of the most recent release (cancellation) by this user for this facility type,
+// or undefined if none exists. The caller compares this timestamp with the current time in JS
+// to decide whether the 30-second cooldown rule applies (no date arithmetic done in SQL).
+const getLastReleaseTime = (userId, facilityTypeId) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
-      SELECT COUNT(*) AS count
+      SELECT r.released_at AS releasedAt
       FROM reservations r
       JOIN facilities f ON f.code = r.facility_code
       WHERE r.user_id = ? AND f.facility_type_id = ? AND r.status = 'cancelled'
-        AND r.released_at > datetime('now', '-' || ? || ' seconds')
+      ORDER BY r.released_at DESC
+      LIMIT 1
     `;
-		db.get(sql, [userId, facilityTypeId, cooldownSeconds], (err, row) => {
+		db.get(sql, [userId, facilityTypeId], (err, row) => {
 			if (err) reject(err);
-			else resolve(row.count > 0);
+			else resolve(row ? row.releasedAt : undefined);
 		});
 	});
 };
@@ -149,10 +152,10 @@ const deleteRent = (reservationId, equipmentId) => {
 
 export default {
 	getActiveReservationsByUser,
+    getLastReleaseTime,
 	getReservationById,
 	createReservation,
 	cancelReservation,
-	hasRecentRelease,
 	getRentsByReservation,
 	addRent,
 	updateRentQuantity,
