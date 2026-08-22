@@ -34,12 +34,12 @@ const getUser = (email, password) => {
         resolve(false);
       }
       else {
-        const user = { id: row.id, username: row.email, name: row.name, secret: row.secret, lastTotpStep: row.lastTotpStep };
+        const user = { id: row.id, username: row.email, name: row.name, secret: row.totp_secret, lastTotpStep: row.last_totp_step };
 
         // Check the hashes with an async call, this operation may be CPU-intensive (and we don't want to block the server)
         crypto.scrypt(password, row.salt, 32, function (err, hashedPassword) { // WARN: it is 64 and not 32 (as in the week example) in the DB
           if (err) reject(err);
-          if (!crypto.timingSafeEqual(Buffer.from(row.hash, 'hex'), hashedPassword)) // WARN: it is hash and not password (as in the week example) in the DB
+          if (!crypto.timingSafeEqual(Buffer.from(row.password_hash, 'hex'), hashedPassword)) // WARN: it is hash and not password (as in the week example) in the DB
             resolve(false);
           else
             resolve(user);
