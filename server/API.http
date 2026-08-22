@@ -1,136 +1,123 @@
-# This file could be used for testing the API with Visual Studio Code
+# This file can be used for testing the API with the VS Code "REST Client" extension.
+# NOTE: the extension keeps a cookie jar per file, so once you run a login request below,
+# subsequent requests in this same file will automatically reuse the session cookie.
 
-## Retrieve all the facilities.
+## Retrieve all free facilities (public, no login required).
 GET http://localhost:3001/api/facilities HTTP/1.1
 ###
 
-## TODO: implement
-GET http://localhost:3001/api/facilities/{{$randomInt 1 6}} HTTP/1.1
+## Retrieve all equipment with availability (public, no login required).
+GET http://localhost:3001/api/equipment HTTP/1.1
 ###
 
-GET http://localhost:3001/api/equipments HTTP/1.1
 
+# Authentication
 
-## Create new film (without id)
-POST http://localhost:3001/api/films HTTP/1.1
+## Login with correct credentials (user2, 2FA enabled, 1 active reservation).
+POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
 {
-    "title": "Guardians of the Galaxy Vol.3",
-    "favorite": 1,
-    "watchDate": "2024-02-09",
-    "rating": 4
+  "email": "user2@example.com",
+  "password": "Password2!"
 }
 ###
 
-GET http://localhost:3001/api/films?filter=lastmonth HTTP/1.1
+## Check current session (should return user info after the login above).
+GET http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
-## Delete film.
-DELETE http://localhost:3001/api/films/6 HTTP/1.1
-###
-
-
-## Update a film.
-PUT http://localhost:3001/api/films/7 HTTP/1.1
+## Second factor login (only works if the user above has TOTP enabled and a valid code is provided).
+POST http://localhost:3001/api/login-totp HTTP/1.1
 content-type: application/json
 
 {
-    "id": 7,
-    "title": "The Hangover",
-    "favorite": 0,
-    "rating": 1
+  "code": "123456"
 }
 ###
 
+## Logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
 
-## Update film favorite property.
-PUT http://localhost:3001/api/films/3/favorite HTTP/1.1
+
+# Reservations (require login - run the login request above first)
+
+## Login as user3 (score -1, 1 active reservation) for the tests below.
+POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
 {
-    "id" : 3,
-    "favorite": 1
+  "email": "user3@example.com",
+  "password": "Password3!"
 }
 ###
 
-## Change film rating.
-POST http://localhost:3001/api/films/change-rating HTTP/1.1
+## Retrieve the logged-in user's active reservations, including equipment.
+GET http://localhost:3001/api/reservations HTTP/1.1
+###
+
+## Create a new reservation with direct facility selection (tennis, exact mandatory minimum).
+POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
 {
-    "id": 1,
-    "deltaRating": 0
+  "facilityTypeId": 1,
+  "facilityCode": "T3",
+  "equipment": [
+    { "equipmentId": 1, "quantity": 2 },
+    { "equipmentId": 2, "quantity": 3 }
+  ]
 }
 ###
 
+## Create a new reservation with automatic facility assignment (no facilityCode given).
+POST http://localhost:3001/api/reservations HTTP/1.1
+content-type: application/json
+
+{
+  "facilityTypeId": 6,
+  "equipment": [
+    { "equipmentId": 13, "quantity": 1 },
+    { "equipmentId": 14, "quantity": 1 }
+  ]
+}
+###
+
+## Modify a reservation's optional/extra equipment (adjust the id to one of your active reservations).
+PUT http://localhost:3001/api/reservations/1 HTTP/1.1
+content-type: application/json
+
+{
+  "equipment": [
+    { "equipmentId": 1, "quantity": 2 },
+    { "equipmentId": 2, "quantity": 3 },
+    { "equipmentId": 3, "quantity": 1 }
+  ]
+}
+###
+
+## Delete a reservation (adjust the id to one of your active reservations).
+DELETE http://localhost:3001/api/reservations/1 HTTP/1.1
+###
 
 
 # Wrong Requests
 
-## Trying to retrieve a film with an ID that does not exist.
-GET http://localhost:3001/api/films/1000 HTTP/1.1
-###
-
-## Trying to retrieve a film with a wrong ID.
-GET http://localhost:3001/api/films/ThisIsAStringId HTTP/1.1
-###
-
-## Trying to create a wrong film.
-POST http://localhost:3001/api/films HTTP/1.1
+## Login with wrong password - should return 401.
+POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
 {
-    "wrong_title_field": "Guardians of the Galaxy Vol.3",
-    "favorite": "I really liked it!",
-    "watchDate": "May the 15th, 2023",
-    "rating": 35
+  "email": "user2@example.com",
+  "password": "WrongPassword!"
 }
 ###
 
-## Trying to update a film with wrong values.
-PUT http://localhost:3001/api/films/1 HTTP/1.1
-content-type: application/json
-
-{
-    "id": 1,
-    "title": "The Hangover",
-    "favorite": 7,
-    "watchDate": "",
-    "rating": 7
-}
+## Access reservations without being logged in - should return 401.
+# (Run this in a fresh session / after logout, otherwise the cookie jar keeps you logged in.)
+GET http://localhost:3001/api/reservations HTTP/1.1
 ###
 
-## Trying to updates film favorite property with a wrong value.
-PUT http://localhost:3001/api/films/1/favorite HTTP/1.1
-content-type: application/json
-
-{
-    "id": 1,
-    "favorite": "Really like it!"
-}
-###
-
-## Trying to update film rating property with a wrong value.
-PUT http://localhost:3001/api/films/1 HTTP/1.1
-content-type: application/json
-
-{
-    "id": 1,
-    "rating": 50
-}
-###
-
-## Updates film with an id that does not exists
-PUT http://localhost:3001/api/films/999 HTTP/1.1
-content-type: application/json
-
-{
-    "id": 999,
-    "title": "The Hangover",
-    "favorite": 0,
-    "watchDate": "",
-    "rating": 1,
-    "user": 1
-}
-###
+## Create a reservation without the mandatory minimum equipment - should return 422.
+POST http://localhost:3001/api/reservations
