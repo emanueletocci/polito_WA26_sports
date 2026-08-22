@@ -1,143 +1,255 @@
 /*** Importing modules ***/
-import express from "express";
-import morgan from "morgan"; // logging middleware
-import { check, validationResult, oneOf } from "express-validator"; // validation middleware
-import cors from "cors";
+import express from 'express';
+import morgan from 'morgan';  // logging middleware
+import { check, validationResult } from 'express-validator'; // validation middleware
+import cors from 'cors';
 
 /** Authentication-related imports **/
-import passport from "passport"; // authentication middleware
-import LocalStrategy from "passport-local"; // authentication strategy (username and password)
+import passport from 'passport';                 // authentication middleware
+import LocalStrategy from 'passport-local';       // authentication strategy (email and password)
+import session from 'express-session';
 
-import { TOTP } from "otpauth";
+import { TOTP } from 'otpauth';
 
-import userDao from "./dao-users.mjs"; // module for accessing the user table in the DB
-import session from "express-session";
+import userDao from './dao-users.mjs';            // module for accessing the users table in the DB
+// import reservationDao from './dao-reservations.mjs';  // TODO: da aggiungere quando pronto
+// import facilityDao from './dao-facilities.mjs';       // TODO: da aggiungere quando pronto
 
 const responseDelay = 1000;
 
 /*** init express and set-up the middlewares ***/
 const app = express();
-app.use(morgan("dev"));
+app.use(morgan('dev'));
 app.use(express.json());
+
 
 /** Set up and enable Cross-Origin Resource Sharing (CORS) **/
 const corsOptions = {
-	origin: "http://localhost:5173",
-	credentials: true,
+  origin: 'http://localhost:5173',
+  credentials: true,
 };
 app.use(cors(corsOptions));
+
 
 /*** Passport ***/
 
 /** Set up authentication strategy to search in the DB a user with a matching password.
- * The user object will contain other information extracted by the method userDao.getUser (i.e., id, username, name).
+ * The user object will contain all fields returned by userDao.getUser
+ * (i.e., id, email, name, surname, score, totpSecret, lastTotpStep).
  **/
-passport.use(
-	new LocalStrategy(
-		{ usernameField: "email" }, // setting email as the username field
-		async function verify(username, password, callback) {
-			const user = await userDao.getUser(username, password);
-			if (!user) return callback(null, false, "Incorrect username or password");
+passport.use(new LocalStrategy(
+  { usernameField: 'email' },  // our field is "email", not the Passport default "username"
+  async function verify(email, password, callback) {
+    const user = await userDao.getUser(email, password);
+    if (!user)
+      return callback(null, false, 'Incorrect email or password');
 
-			return callback(null, user); // NOTE: user info in the session (all fields returned by userDao.getUser, i.e, id, username, name)
-		},
-	),
-);
+    return callback(null, user); // NOTE: user info in the session (all fields returned by userDao.getUser)
+  }
+));
 
 // Serializing in the session the user object given from LocalStrategy(verify).
-passport.serializeUser(function (user, callback) {
-	// this user is id + username + name
-	callback(null, user);
+passport.serializeUser(function (user, callback) { // this user is id + email + name + surname + score + totpSecret + lastTotpStep
+  callback(null, user);
 });
 
 // Starting from the data in the session, we extract the current (logged-in) user.
-passport.deserializeUser(function (user, callback) {
-	// this user is id + email + name
-	// if needed, we can do extra check here (e.g., double check that the user is still in the database, etc.)
-	// e.g.: return userDao.getUserById(id).then(user => callback(null, user)).catch(err => callback(err, null));
+passport.deserializeUser(function (user, callback) { // this user is id + email + name + surname + score + totpSecret + lastTotpStep
+  // if needed, we can do extra check here (e.g., double check that the user is still in the database, etc.)
+  // e.g.: return userDao.getUserById(user.id).then(u => callback(null, u)).catch(err => callback(err, null));
 
-	userDao
-		.getUserById(id) // rileggo SEMPRE dal DB, fresco
-		.then((user) => callback(null, user))
-		.catch((err) => callback(err, null));
+  return callback(null, user); // this will be available in req.user
 });
 
 /** Creating the session */
+app.use(session({
+  secret: "shhhhh... it's a secret! - change it for the exam!",
+  resave: false,
+  saveUninitialized: false,
+}));
+app.use(passport.authenticate('session'));
 
-app.use(
-	session({
-		secret: "shhhhh... it's a secret! - change it for the exam!",
-		resave: false,
-		saveUninitialized: false,
-	}),
-);
-app.use(passport.authenticate("session"));
 
 function verifyTotpToken(user, token) {
-	const totp = new TOTP({
-		algorithm: "SHA1",
-		digits: 6,
-		period: 30,
-		secret: user.secret,
-	});
+  const totp = new TOTP({
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 30,
+    secret: user.totpSecret
+  });
 
-	// Validate the code
-	const delta = totp.validate({ token, window: 1 });
-	if (delta === null) {
-		return false; // invalid code
-	}
+  // Validate the code
+  const delta = totp.validate({ token, window: 1 });
+  if (delta === null) {
+    return false; // invalid code
+  }
 
-	// Get the CURRENT time-step counter from OTPAuth
-	//
-	// Important:
-	//  - delta tells us how many steps away the provided token is
-	//  - counter() gives the *current* step index
-	//
-	// Therefore: actual_step = current_counter + delta
-	//
-	const currentCounter = totp.counter();
-	const actualStep = currentCounter + delta;
-	//console.log('DEBUG: Token valid for step '+actualStep, ' (current counter: '+currentCounter+', delta: '+delta+')');
+  // Get the CURRENT time-step counter from OTPAuth
+  //
+  // Important:
+  //  - delta tells us how many steps away the provided token is
+  //  - counter() gives the *current* step index
+  //
+  // Therefore: actual_step = current_counter + delta
+  //
+  const currentCounter = totp.counter();
+  const actualStep = currentCounter + delta;
 
-	if (actualStep <= user.lastTotpStep) return false; // Reject replay or older step
+  if (actualStep <= user.lastTotpStep)
+    return false;  // Reject replay or older step
 
-	// Accept : update last-used step
-	user.lastTotpStep = actualStep;
-	return true;
+  // Accept: update last-used step (in-memory, will be persisted to DB by the caller)
+  user.lastTotpStep = actualStep;
+  return true;
 }
+
 
 /** Defining authentication verification middleware **/
 const isLoggedIn = (req, res, next) => {
-	if (req.isAuthenticated()) {
-		return next();
-	}
-	return res.status(401).json({ error: "Not authenticated" });
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  return res.status(401).json({ error: 'Not authenticated' });
 };
 
 function isTotp(req, res, next) {
-	if (req.session.method === "totp") return next();
-	return res.status(401).json({ error: "Missing TOTP authentication" });
+  if (req.session.method === 'totp')
+    return next();
+  return res.status(401).json({ error: 'Missing TOTP authentication' });
 }
+
 
 /*** Utility Functions ***/
 
-// Make sure to set a reasonable value (not too small!) depending on the application constraints
-// It is recommended (but NOT strictly required) to have a limit here or in the DB constraints
-// to avoid malicious requests waste space in DB and network bandwidth.
-
+// Regola esplicita del testo: non è possibile ri-prenotare un impianto dello stesso tipo
+// entro 30 secondi dal rilascio da parte dello stesso utente.
 const REBOOKING_COOLDOWN_SECONDS = 30;
 
 // This function is used to format express-validator errors as strings
 const errorFormatter = ({ location, msg, param, value, nestedErrors }) => {
-	return `${location}[${param}]: ${msg}`;
+  return `${location}[${param}]: ${msg}`;
 };
 
-// APIs
+
+/*** Facilities & Equipment APIs (pubbliche, nessun login richiesto) ***/
+
+// TODO: GET /api/facilities
+// Restituisce il numero di impianti disponibili per ciascun tipo.
+// (da collegare a facilityDao quando pronto)
+
+// TODO:GET /api/equipment
+// Restituisce la quantità disponibile per ciascun tipo di attrezzatura.
+// (da collegare a facilityDao quando pronto)
+
+
+/*** Reservations APIs (richiedono login) ***/
+
+// TODO: GET /api/reservations
+// Lista delle prenotazioni attive dell'utente loggato.
+// (da collegare a reservationDao quando pronto)
+
+// TODO: POST /api/reservations
+// Crea una nuova prenotazione, con la relativa attrezzatura minima/extra.
+// (da collegare a reservationDao quando pronto - qui vanno i controlli su
+//  disponibilità impianto, disponibilità attrezzatura, score negativo, cooldown 30s)
+
+// TODO: PUT /api/reservations/:id
+// Modifica l'attrezzatura di una prenotazione esistente (solo extra, non il minimo obbligatorio).
+
+// TODO: DELETE /api/reservations/:id
+// Cancella una prenotazione: ripristina disponibilità, decrementa lo score,
+// registra il rilascio per la regola dei 30 secondi.
+
+
+/*** Users APIs ***/
+
+function clientUserInfo(req) {
+  const user = req.user;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    surname: user.surname,
+    score: user.score,
+    canDoTotp: user.totpSecret ? true : false,
+    isTotp: req.session.method === 'totp'
+  };
+}
+
+// POST /api/sessions
+// This route is used for performing login (email + password only).
+app.post('/api/sessions', function (req, res, next) {
+  passport.authenticate('local', (err, user, info) => {
+    if (err)
+      return next(err);
+    if (!user) {
+      // display wrong login messages
+      return res.status(401).json({ error: info });
+    }
+    // success, perform the login and establish a login session
+    req.login(user, (err) => {
+      if (err)
+        return next(err);
+
+      // req.user contains the authenticated user, we send all the user info back
+      // this is coming from userDao.getUser() in LocalStrategy Verify Fn
+      return res.json(clientUserInfo(req));
+    });
+  })(req, res, next);
+});
+
+// POST /api/login-totp
+// Second step of login: verifies the TOTP code for users who enabled 2FA.
+// Resets the user's score to 0, as required by the spec.
+app.post('/api/login-totp', isLoggedIn,
+  async (req, res) => {
+    if (!req.user.totpSecret) {
+      console.log('TOTP not enabled for this user');
+      return res.status(400).json({ error: 'Cannot authenticate with TOTP' });
+    }
+    const success = verifyTotpToken(req.user, req.body.code);
+    if (success) {
+      req.session.method = 'totp';
+      try {
+        // Persist the consumed step (replay protection) and reset the score to 0
+        await userDao.updateLastTotpStep(req.user.id, req.user.lastTotpStep);
+        await userDao.resetScore(req.user.id);
+        req.user.score = 0; // keep the in-session copy consistent with the DB
+      } catch (err) {
+        console.log(err);
+        return res.status(503).json({ error: 'Database error' });
+      }
+      return res.json({ otp: 'authorized' });
+    } else {
+      console.log('Invalid or replayed TOTP code');
+      return res.status(401).json({ error: 'Cannot authenticate with TOTP' });
+    }
+  }
+);
+
+// GET /api/sessions/current
+// This route checks whether the user is logged in or not.
+app.get('/api/sessions/current', (req, res) => {
+  if (req.isAuthenticated()) {
+    res.status(200).json(clientUserInfo(req));
+  } else
+    res.status(401).json({ error: 'Not authenticated' });
+});
+
+// DELETE /api/sessions/current
+// This route is used for logging out the current user.
+app.delete('/api/sessions/current', (req, res) => {
+  req.logout(() => {
+    res.status(200).json({});
+  });
+});
+
 
 // Activating the server
 const PORT = 3001;
-// Activate the server
 app.listen(PORT, (err) => {
-	if (err) console.log(err);
-	else console.log(`Server listening at http://localhost:${PORT}`);
+  if (err)
+    console.log(err);
+  else
+    console.log(`Server listening at http://localhost:${PORT}`);
 });
