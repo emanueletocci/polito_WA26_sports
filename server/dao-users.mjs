@@ -40,7 +40,7 @@ const getUser = (email, password) => {
 			} else {
 				const user = {
 					id: row.id,
-					username: row.email,
+					email: row.email,
 					name: row.name,
 					secret: row.totp_secret,
 					lastTotpStep: row.last_totp_step,
