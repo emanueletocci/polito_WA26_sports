@@ -12,8 +12,8 @@ import session from 'express-session';
 import { TOTP } from 'otpauth';
 
 import userDao from './dao-users.mjs';            // module for accessing the users table in the DB
-// import reservationDao from './dao-reservations.mjs';  // TODO: da aggiungere quando pronto
-// import facilityDao from './dao-facilities.mjs';       // TODO: da aggiungere quando pronto
+import reservationDao from './dao-reservations.mjs';  
+import facilityDao from './dao-facilities.mjs';       
 
 const responseDelay = 1000;
 
