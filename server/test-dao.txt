@@ -1,0 +1,260 @@
+=== Test connessione DB + DAO ===
+
+--- getFreeFacilities() ---
+[
+  { code: 'T2', facilityTypeId: 1, facilityTypeName: 'tennis' },
+  { code: 'T3', facilityTypeId: 1, facilityTypeName: 'tennis' },
+  { code: 'B2', facilityTypeId: 2, facilityTypeName: 'basketball' },
+  { code: 'V2', facilityTypeId: 3, facilityTypeName: 'volleyball' },
+  { code: 'S1', facilityTypeId: 4, facilityTypeName: 'soccer' },
+  { code: 'P2', facilityTypeId: 5, facilityTypeName: 'table_tennis' },
+  { code: 'P3', facilityTypeId: 5, facilityTypeName: 'table_tennis' },
+  { code: 'P4', facilityTypeId: 5, facilityTypeName: 'table_tennis' },
+  { code: 'CY1', facilityTypeId: 6, facilityTypeName: 'cycling' },
+  { code: 'CY2', facilityTypeId: 6, facilityTypeName: 'cycling' }
+]
+--- getReservedFacilities() ---
+[
+  { code: 'T1', facilityTypeId: 1, facilityTypeName: 'tennis' },
+  { code: 'B1', facilityTypeId: 2, facilityTypeName: 'basketball' },
+  { code: 'V1', facilityTypeId: 3, facilityTypeName: 'volleyball' },
+  { code: 'P1', facilityTypeId: 5, facilityTypeName: 'table_tennis' }
+]
+
+--- getAllFacilityTypes() ---
+[
+  { id: 1, name: 'tennis' },
+  { id: 2, name: 'basketball' },
+  { id: 3, name: 'volleyball' },
+  { id: 4, name: 'soccer' },
+  { id: 5, name: 'table_tennis' },
+  { id: 6, name: 'cycling' }
+]
+
+--- getFacilityByCode("T1") ---
+{ code: 'T1', facilityTypeId: 1, isBooked: 1 }
+
+--- getOneFreeFacilityByType(1) [tennis] ---
+{ code: 'T2' }
+
+--- getEquipmentById(1) [tennis] ---
+{
+  id: 1,
+  facilityTypeId: 1,
+  name: 'tennis_racket',
+  totalQuantity: 8,
+  availableQuantity: 6,
+  minQuantity: 2
+}
+
+--- getEquipmentAvailability() ---
+[
+  {
+    id: 1,
+    name: 'tennis_racket',
+    totalQuantity: 8,
+    availableQuantity: 6
+  },
+  {
+    id: 2,
+    name: 'tennis_ball',
+    totalQuantity: 7,
+    availableQuantity: 4
+  },
+  { id: 3, name: 'towel', totalQuantity: 4, availableQuantity: 4 },
+  { id: 4, name: 'basketball', totalQuantity: 2, availableQuantity: 1 },
+  { id: 5, name: 'cone', totalQuantity: 4, availableQuantity: 4 },
+  { id: 6, name: 'volleyball', totalQuantity: 2, availableQuantity: 1 },
+  {
+    id: 7,
+    name: 'knee_pads',
+    totalQuantity: 10,
+    availableQuantity: 10
+  },
+  {
+    id: 8,
+    name: 'soccer_ball',
+    totalQuantity: 2,
+    availableQuantity: 2
+  },
+  {
+    id: 9,
+    name: 'soccer_shoes',
+    totalQuantity: 12,
+    availableQuantity: 12
+  },
+  {
+    id: 10,
+    name: 'goalkeeper_gloves',
+    totalQuantity: 2,
+    availableQuantity: 2
+  },
+  {
+    id: 11,
+    name: 'table_tennis_racket',
+    totalQuantity: 8,
+    availableQuantity: 6
+  },
+  {
+    id: 12,
+    name: 'table_tennis_ball',
+    totalQuantity: 4,
+    availableQuantity: 3
+  },
+  { id: 13, name: 'bicycle', totalQuantity: 4, availableQuantity: 4 },
+  { id: 14, name: 'helmet', totalQuantity: 4, availableQuantity: 4 },
+  {
+    id: 15,
+    name: 'repair_kit',
+    totalQuantity: 1,
+    availableQuantity: 1
+  }
+]
+
+--- getEquipmentRulesForFacilityType(1) [tennis] ---
+[
+  {
+    id: 1,
+    name: 'tennis_racket',
+    totalQuantity: 8,
+    availableQuantity: 6,
+    minQuantity: 2
+  },
+  {
+    id: 2,
+    name: 'tennis_ball',
+    totalQuantity: 7,
+    availableQuantity: 4,
+    minQuantity: 3
+  },
+  {
+    id: 3,
+    name: 'towel',
+    totalQuantity: 4,
+    availableQuantity: 4,
+    minQuantity: 0
+  }
+]
+
+--- getUser (credenziali corrette) ---
+{
+  id: 1,
+  email: 's363290@studenti.polito.it',
+  name: 'Emanuele',
+  secret: null,
+  lastTotpStep: null
+}
+
+--- getUser (password sbagliata, deve dare false) ---
+false
+
+--- getUserById(1) ---
+{
+  id: 1,
+  email: 's363290@studenti.polito.it',
+  name: 'Emanuele',
+  surname: 'Tocci',
+  score: 0,
+  totpSecret: null,
+  lastTotpStep: null
+}
+
+--- getUserById(2) ---
+{
+  id: 2,
+  email: 'user2@example.com',
+  name: 'Marco',
+  surname: 'Rossi',
+  score: 0,
+  totpSecret: 'LXBSMDTMSP2I5XFXIYRGFVWSFI',
+  lastTotpStep: null
+}
+
+--- getUserById(3) ---
+{
+  id: 3,
+  email: 'user3@example.com',
+  name: 'Giulia',
+  surname: 'Verdi',
+  score: -1,
+  totpSecret: null,
+  lastTotpStep: null
+}
+
+--- getUserById(4) ---
+{
+  id: 4,
+  email: 'user4@example.com',
+  name: 'Luca',
+  surname: 'Neri',
+  score: -2,
+  totpSecret: 'LXBSMDTMSP2I5XFXIYRGFVWSFI',
+  lastTotpStep: null
+}
+
+--- getActiveReservationsByUser(4) ---
+[
+  {
+    id: 3,
+    userId: 4,
+    facilityCode: 'V1',
+    createdAt: '2026-08-21 12:00:00',
+    facilityTypeId: 3,
+    facilityTypeName: 'volleyball'
+  },
+  {
+    id: 4,
+    userId: 4,
+    facilityCode: 'P1',
+    createdAt: '2026-08-21 13:00:00',
+    facilityTypeId: 5,
+    facilityTypeName: 'table_tennis'
+  }
+]
+
+--- getReservationById(1) ---
+{
+  id: 1,
+  userId: 2,
+  facilityCode: 'T1',
+  createdAt: '2026-08-21 10:00:00',
+  status: 'active',
+  releasedAt: null,
+  facilityTypeId: 1
+}
+
+--- getReservationById(9999) [inesistente, deve dare error] ---
+{ error: 'Reservation not found.' }
+
+--- getRentsByReservation(1) ---
+[
+  {
+    reservationId: 1,
+    equipmentId: 1,
+    quantity: 2,
+    name: 'tennis_racket',
+    minQuantity: 2
+  },
+  {
+    reservationId: 1,
+    equipmentId: 2,
+    quantity: 3,
+    name: 'tennis_ball',
+    minQuantity: 3
+  }
+]
+
+--- getLastReleaseTime(2, 1) [tennis, prima di ogni cancellazione, deve essere undefined] ---
+2026-08-23 10:51:43
+
+--- Creo e cancello una prenotazione di prova per testare getLastReleaseTime ---
+Prenotazione di prova creata con id: 8
+Prenotazione 8 cancellata
+
+--- getLastReleaseTime(2, 1) [tennis, dopo la cancellazione, deve avere un timestamp] ---
+2026-08-23 10:55:03
+
+--- Verifica calcolo secondi trascorsi in JS (occhio al fuso orario UTC) ---
+Secondi trascorsi dal rilascio: 0.18
+
+=== Tutti i test completati senza errori ===

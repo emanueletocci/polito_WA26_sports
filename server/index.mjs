@@ -265,70 +265,108 @@ app.get("/api/reservations", isLoggedIn, async (req, res) => {
 	}
 });
 
-// TODO: CONTROLLARE
+// TODO: Controllare
 // POST /api/reservations
 // Creates a new reservation for the logged-in user, with optional equipment.
 // The request body must contain: facilityTypeId, optional facilityCode, and optional equipment array.
-app.post("/api/reservations", isLoggedIn, async (req, res) => {
-	const { facilityTypeId, facilityCode, equipment } = req.body;
-
-	try {
-		// Block if the user just released a facility of this type recently.
-		if (await isRebookingTooEarly(req.user.id, facilityTypeId)) {
-			return res
-				.status(422)
-				.json({ error: "Too early to reserve again for this facility type." });
+app.post(
+	"/api/reservations",
+	isLoggedIn,
+	[
+		check("facilityTypeId").isInt({ min: 1 }),
+		check("facilityCode").optional().isString().notEmpty(),
+		check("equipment").isArray(),
+		// The "*" wildcard applies this validation rule to every element of the "equipment" array
+		// (e.g. equipment[0].equipmentId, equipment[1].equipmentId, ...), regardless of the array's length.
+		check("equipment.*.equipmentId").isInt({ min: 1 }),
+		check("equipment.*.quantity").isInt({ min: 0 }),
+	],
+	async (req, res) => {
+		const errors = validationResult(req).formatWith(errorFormatter);
+		if (!errors.isEmpty()) {
+			return res.status(422).json(errors.errors);
 		}
 
-		// Pick the facility to book (direct choice or auto-assigned).
-		const facilityResult = await resolveFacility(facilityTypeId, facilityCode);
-		if (facilityResult.error) {
-			return res.status(422).json({ error: facilityResult.error });
-		}
-		const chosenFacilityCode = facilityResult.code;
+		// Extract the relevant fields from the request body - Destructuring syntax
+		const { facilityTypeId, facilityCode, equipment } = req.body;
 
-		// Check the requested equipment against the rules for this facility type.
-		const rules =
-			await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
-		const validation = validateEquipmentRequest(
-			rules,
-			equipment,
-			req.user.score,
-		);
-		if (validation.error) {
-			return res.status(422).json({ error: validation.error });
-		}
+		try {
+			// Block if the user just released a facility of this type recently.
+			if (await isRebookingTooEarly(req.user.id, facilityTypeId)) {
+				return res.status(422).json({
+					error: "Too early to reserve again for this facility type.",
+				});
+			}
 
-		// Everything is valid: create the reservation...
-		const reservationId = await reservationDao.createReservation(
-			req.user.id,
-			chosenFacilityCode,
-		);
-		// ...attach each requested equipment item and reduce its stock...
-		for (const line of validation.lines) {
-			await reservationDao.addRent(
-				reservationId,
-				line.equipmentId,
-				line.quantity,
+			// Pick the facility to book (direct choice or auto-assigned).
+			const facilityResult = await resolveFacility(
+				facilityTypeId,
+				facilityCode,
 			);
-			await facilityDao.decrementEquipmentAvailability(
-				line.equipmentId,
-				line.quantity,
-			);
-		}
-		// ...and mark the facility as booked.
-		await facilityDao.setFacilityBooked(chosenFacilityCode, true);
 
-		// Return the newly created reservation together with its equipment.
-		const created = await reservationDao.getReservationById(reservationId);
-		const createdEquipment =
-			await reservationDao.getRentsByReservation(reservationId);
-		res.json({ ...created, equipment: createdEquipment });
-	} catch (err) {
-		console.error(err);
-		res.status(500).json({ error: "Database error" });
-	}
-});
+			if (facilityResult.error) {
+				return res.status(422).json({ error: facilityResult.error });
+			}
+			const chosenFacilityCode = facilityResult.code;
+
+			// Check the requested equipment against the rules for this facility type.
+			// getEquipmentRulesForFacilityType returns an array of { id, name, totalQuantity, availableQuantity, minQuantity }
+			// eg. tennis:
+			// [
+			// {
+			//  id: 1,
+			//  name: 'tennis_racket',
+			//  totalQuantity: 8,
+			//  availableQuantity: 6,
+			//  minQuantity: 2
+			// },
+			// ...
+			// ]
+
+			const rules =
+				await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
+			const validation = validateEquipmentRequest(
+				rules,
+				equipment,
+				req.user.score,
+			);
+
+			if (validation.error) {
+				return res.status(422).json({ error: validation.error });
+			}
+
+			// Everything is valid: create the reservation...
+			const reservationId = await reservationDao.createReservation(
+				req.user.id,
+				chosenFacilityCode,
+			);
+
+			// ...attach each requested equipment item and reduce its stock...
+			for (const line of validation.lines) {
+				await reservationDao.addRent(
+					reservationId,
+					line.equipmentId,
+					line.quantity,
+				);
+				await facilityDao.decrementEquipmentAvailability(
+					line.equipmentId,
+					line.quantity,
+				);
+			}
+			// ...and mark the facility as booked.
+			await facilityDao.setFacilityBooked(chosenFacilityCode, true);
+
+			// Return the newly created reservation together with its equipment.
+			const created = await reservationDao.getReservationById(reservationId);
+			const createdEquipment =
+				await reservationDao.getRentsByReservation(reservationId);
+			res.json({ ...created, equipment: createdEquipment });
+		} catch (err) {
+			console.error(err);
+			res.status(500).json({ error: "Database error" });
+		}
+	},
+);
 
 // TODO: PUT /api/reservations/:id
 // Modifica l'attrezzatura di una prenotazione esistente (solo extra, non il minimo obbligatorio).
@@ -353,6 +391,7 @@ function clientUserInfo(req) {
 }
 
 /** Utility functions ***/
+
 // Returns { code } if a valid facility is found, otherwise { error }.
 async function resolveFacility(facilityTypeId, facilityCode) {
 	// Case 1: the user picked a specific facility.
@@ -391,64 +430,79 @@ async function isRebookingTooEarly(userId, facilityTypeId) {
 	return secondsPassed < REBOOKING_COOLDOWN_SECONDS;
 }
 
-// TODO: CONTROLLARE, COSA É STO ARRAY VUOTO
 // Validates the equipment quantities requested by the user against the rules of a facility type.
 // - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
 // - requested: array from req.body.equipment, e.g. [{ equipmentId, quantity }, ...]
 // - userScore: the user's current score (negative scores restrict to mandatory minimums only)
 // Returns { error: 'message' } on the first violation found, or { lines: [...] } with the
 // final list of { equipmentId, name, quantity } to persist (only lines with quantity > 0).
+
 function validateEquipmentRequest(rules, requested, userScore) {
-	const requestedMap = new Map(
-		(requested || []).map((e) => [e.equipmentId, e.quantity]),
+	// extracting allowed equipment IDs from the rules
+	const allowedIds = rules.map((r) => r.id);
+
+	// Check for unknown equipment IDs in the request
+	const hasUnknownEquipment = requested.some(
+		(e) => !allowedIds.includes(e.equipmentId),
 	);
-	const lines = [];
+
+	if (hasUnknownEquipment) {
+		return {
+			error: "Requested equipment is not valid for this facility type.",
+		};
+	}
 
 	for (const rule of rules) {
-		const qty = requestedMap.get(rule.id) || 0;
+		const requestedQuantity = getRequestedEquipmentQuantity(requested, rule.id);
 
 		if (rule.minQuantity > 0) {
-			// Mandatory equipment: must always be present with at least the minimum quantity.
-			if (qty < rule.minQuantity) {
+			// Case 1: mandatory equipment
+			if (requestedQuantity < rule.minQuantity) {
 				return {
-					error: `Not enough ${rule.name}: at least ${rule.minQuantity} required.`,
+					error: `Requested quantity for ${rule.name} is below the mandatory minimum of ${rule.minQuantity}.`,
 				};
 			}
-			// Negative score users may not request MORE than the mandatory minimum.
-			if (userScore < 0 && qty > rule.minQuantity) {
+			if (userScore < 0 && requestedQuantity > rule.minQuantity) {
 				return {
-					error: `Negative score: only the mandatory minimum quantity of ${rule.name} is allowed.`,
+					error: `User score is negative; cannot request more than the mandatory minimum for ${rule.name}.`,
 				};
 			}
 		} else {
-			// Optional equipment: negative score users may not request it at all.
-			if (userScore < 0 && qty > 0) {
+			// Case 2: optional equipment
+			if (userScore < 0 && requestedQuantity > 0) {
 				return {
-					error: `Negative score: optional equipment (${rule.name}) is not allowed.`,
+					error: `User score is negative; cannot request any optional equipment.`,
 				};
 			}
 		}
 
-		if (qty > rule.availableQuantity) {
-			return { error: `Not enough equipment of type ${rule.name} available.` };
-		}
-
-		if (qty > 0) {
-			lines.push({ equipmentId: rule.id, name: rule.name, quantity: qty });
-		}
-	}
-
-	// Reject any requested equipment id that is not part of this facility type's rules.
-	const validIds = new Set(rules.map((r) => r.id));
-	for (const e of requested || []) {
-		if (!validIds.has(e.equipmentId)) {
+		// check availability against the current stock
+		if (requestedQuantity > rule.availableQuantity) {
 			return {
-				error: `Equipment id ${e.equipmentId} is not valid for this facility type.`,
+				error: `Not enough equipment of type ${rule.name} available.`,
 			};
 		}
 	}
 
+	// If we reach this point, all checks passed. We can construct the final lines that will be stored in the database.
+	// We only include lines with quantity > 0, as per the requirement.
+	const lines = rules
+		.map((rule) => ({
+			equipmentId: rule.id,
+			name: rule.name,
+			quantity: getRequestedEquipmentQuantity(requested, rule.id),
+		}))
+		.filter((line) => line.quantity > 0); // only keep lines with quantity > 0
+
 	return { lines };
+}
+
+// Returns the quantity requested for a given equipmentId, or 0 if not requested
+// (also returns 0 if "requested" itself is missing/undefined).
+function getRequestedEquipmentQuantity(requested, equipmentId) {
+	if (!requested) return 0;
+	const line = requested.find((r) => r.equipmentId === equipmentId);
+	return line ? line.quantity : 0;
 }
 
 // Activating the server
