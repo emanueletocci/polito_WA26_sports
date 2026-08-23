@@ -42,7 +42,9 @@ const getUser = (email, password) => {
 					id: row.id,
 					email: row.email,
 					name: row.name,
-					secret: row.totp_secret,
+					surname: row.surname,
+					score: row.score,
+					totpSecret: row.totp_secret,
 					lastTotpStep: row.last_totp_step,
 				};
 
@@ -132,7 +134,7 @@ export default {
 	getUserById,
 	getUser,
 	updateLastTotpStep,
-  decrementScore,
-  incrementScore,
-  resetScore,
+	decrementScore,
+	incrementScore,
+	resetScore,
 };

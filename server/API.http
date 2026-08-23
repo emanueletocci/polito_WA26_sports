@@ -1,6 +1,7 @@
 # This file can be used for testing the API with the VS Code "REST Client" extension.
 # NOTE: the extension keeps a cookie jar per file, so once you run a login request below,
 # subsequent requests in this same file will automatically reuse the session cookie.
+# NOTE: PUT /api/reservations/:id is currently commented out in index.mjs - not tested here yet.
 
 ## Retrieve all free facilities (public, no login required).
 GET http://localhost:3001/api/facilities HTTP/1.1
@@ -13,7 +14,7 @@ GET http://localhost:3001/api/equipment HTTP/1.1
 
 # Authentication
 
-## Login with correct credentials (user2, 2FA enabled, 1 active reservation).
+## Login with correct credentials (user2, 2FA enabled, 1 active reservation on T1 tennis).
 POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
@@ -27,7 +28,7 @@ content-type: application/json
 GET http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
-## Second factor login (only works if the user above has TOTP enabled and a valid code is provided).
+## Second factor login (only works if you have a valid, non-expired code for user2's secret).
 POST http://localhost:3001/api/login-totp HTTP/1.1
 content-type: application/json
 
@@ -41,20 +42,31 @@ DELETE http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
 
-# Reservations (require login - run the login request above first)
+# Reservations (require login - run a login request above first)
 
-## Login as user3 (score -1, 1 active reservation) for the tests below.
+## Login as user4 (score -2, 2 active reservations: V1 volleyball, P1 table tennis).
 POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
 {
-  "email": "user3@example.com",
-  "password": "Password3!"
+  "email": "user4@example.com",
+  "password": "Password4!"
 }
 ###
 
 ## Retrieve the logged-in user's active reservations, including equipment.
 GET http://localhost:3001/api/reservations HTTP/1.1
+###
+
+
+# Login as user2 for the create/delete tests below (score 0, no restrictions).
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "Password2!"
+}
 ###
 
 ## Create a new reservation with direct facility selection (tennis, exact mandatory minimum).
@@ -63,7 +75,7 @@ content-type: application/json
 
 {
   "facilityTypeId": 1,
-  "facilityCode": "T3",
+  "facilityCode": "T2",
   "equipment": [
     { "equipmentId": 1, "quantity": 2 },
     { "equipmentId": 2, "quantity": 3 }
@@ -84,21 +96,16 @@ content-type: application/json
 }
 ###
 
-## Modify a reservation's optional/extra equipment (adjust the id to one of your active reservations).
-PUT http://localhost:3001/api/reservations/1 HTTP/1.1
-content-type: application/json
-
-{
-  "equipment": [
-    { "equipmentId": 1, "quantity": 2 },
-    { "equipmentId": 2, "quantity": 3 },
-    { "equipmentId": 3, "quantity": 1 }
-  ]
-}
+## Delete a reservation (adjust the id to the one just created above, check the response id).
+DELETE http://localhost:3001/api/reservations/5 HTTP/1.1
 ###
 
-## Delete a reservation (adjust the id to one of your active reservations).
-DELETE http://localhost:3001/api/reservations/1 HTTP/1.1
+## Verify the score was decremented after the delete above (should be -1 now for user2).
+GET http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+## Verify the cycling facility is free again after the delete above.
+GET http://localhost:3001/api/facilities HTTP/1.1
 ###
 
 
@@ -115,9 +122,107 @@ content-type: application/json
 ###
 
 ## Access reservations without being logged in - should return 401.
-# (Run this in a fresh session / after logout, otherwise the cookie jar keeps you logged in.)
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
 GET http://localhost:3001/api/reservations HTTP/1.1
 ###
 
+## Log back in as user2 for the remaining tests.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "Password2!"
+}
+###
+
 ## Create a reservation without the mandatory minimum equipment - should return 422.
-POST http://localhost:3001/api/reservations
+POST http://localhost:3001/api/reservations HTTP/1.1
+content-type: application/json
+
+{
+  "facilityTypeId": 1,
+  "facilityCode": "T3",
+  "equipment": [
+    { "equipmentId": 1, "quantity": 1 },
+    { "equipmentId": 2, "quantity": 3 }
+  ]
+}
+###
+
+## Create a reservation on an already-booked facility - should return 422.
+POST http://localhost:3001/api/reservations HTTP/1.1
+content-type: application/json
+
+{
+  "facilityTypeId": 1,
+  "facilityCode": "T1",
+  "equipment": [
+    { "equipmentId": 1, "quantity": 2 },
+    { "equipmentId": 2, "quantity": 3 }
+  ]
+}
+###
+
+## Immediately try to book the same facility type just released - should return 422 (30s cooldown).
+## Run this RIGHT AFTER a DELETE on a tennis reservation, within 30 seconds.
+POST http://localhost:3001/api/reservations HTTP/1.1
+content-type: application/json
+
+{
+  "facilityTypeId": 1,
+  "facilityCode": "T2",
+  "equipment": [
+    { "equipmentId": 1, "quantity": 2 },
+    { "equipmentId": 2, "quantity": 3 }
+  ]
+}
+###
+
+## Delete a reservation that does not exist - should return 404.
+DELETE http://localhost:3001/api/reservations/9999 HTTP/1.1
+###
+
+## Delete a reservation belonging to another user - should return 404 (not 403, to avoid leaking info).
+## Log in as user3 first, then try to delete user2's/user4's reservation id (e.g. 1, 3, or 4).
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user3@example.com",
+  "password": "Password3!"
+}
+###
+
+DELETE http://localhost:3001/api/reservations/1 HTTP/1.1
+###
+
+## Negative-score user (user3, score -1) tries to request MORE than the mandatory minimum - should return 422.
+POST http://localhost:3001/api/reservations HTTP/1.1
+content-type: application/json
+
+{
+  "facilityTypeId": 1,
+  "facilityCode": "T3",
+  "equipment": [
+    { "equipmentId": 1, "quantity": 3 },
+    { "equipmentId": 2, "quantity": 3 }
+  ]
+}
+###
+
+## Negative-score user (user3) requests EXACTLY the mandatory minimum - should succeed.
+POST http://localhost:3001/api/reservations HTTP/1.1
+content-type: application/json
+
+{
+  "facilityTypeId": 1,
+  "facilityCode": "T3",
+  "equipment": [
+    { "equipmentId": 1, "quantity": 2 },
+    { "equipmentId": 2, "quantity": 3 }
+  ]
+}
+###

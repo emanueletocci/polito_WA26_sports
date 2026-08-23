@@ -45,6 +45,8 @@ passport.use(
 		{ usernameField: "email" }, // our field is "email", not the Passport default "username"
 		async function verify(email, password, callback) {
 			const user = await userDao.getUser(email, password);
+			console.log("DEBUG: userDao.getUser returned: ", user);
+
 			if (!user) return callback(null, false, "Incorrect email or password");
 
 			return callback(null, user); // NOTE: user info in the session (all fields returned by userDao.getUser)
