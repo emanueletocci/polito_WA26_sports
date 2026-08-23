@@ -239,7 +239,6 @@ app.get("/api/equipment", async (req, res) => {
 // Reservations APIs (login required)
 // -----------------------------------------------------------------------------
 
-// TODO: CONTROLLARE
 // GET /api/reservations
 // Returns the list of the logged-in user's active reservations, each with its rented equipment.
 app.get("/api/reservations", isLoggedIn, async (req, res) => {
@@ -262,7 +261,6 @@ app.get("/api/reservations", isLoggedIn, async (req, res) => {
 	}
 });
 
-// TODO: Controllare
 // POST /api/reservations
 // Creates a new reservation for the logged-in user, with optional equipment.
 // The request body must contain: facilityTypeId, optional facilityCode, and optional equipment array.
@@ -400,21 +398,66 @@ app.put(
 				return res.status(404).json({ error: "Reservation not found." });
 			}
 
-			const rules = await facilityDao.getEquipmentRulesForFacilityType(reservation.facilityTypeId);
+			// Retrieve the current rented equipment for this reservation
+			const currentRents =
+				await reservationDao.getRentsByReservation(reservationId);
+
+			const rules = await facilityDao.getEquipmentRulesForFacilityType(
+				reservation.facilityTypeId,
+			);
+
+			// rule.availableQuantity already excludes what THIS reservation currently holds.
+			// We add it back so that increasing an already-held quantity isn't wrongly rejected
+			// (e.g. going from 2 to 7 rackets should only need 5 more, not be compared against
+			// the stock available to everyone else, which already excludes our own 2).
+			const adjustedRules = rules.map((rule) => ({
+				...rule,
+				availableQuantity:
+					rule.availableQuantity +
+					getRequestedEquipmentQuantity(currentRents, rule.id),
+			}));
+
 			const validation = validateEquipmentRequest(
-				rules,
+				adjustedRules,
 				req.body.equipment,
 				req.user.score,
 			);
-			
 			if (validation.error) {
 				return res.status(422).json({ error: validation.error });
 			}
 
-			// Retrieve the current rented equipment for this reservation
-			const currentRents = await reservationDao.getRentsByReservation(reservationId);
+			// Apply the difference between old and new quantities, one equipment type at a time.
+			for (const rule of rules) {
+				const oldQty = getRequestedEquipmentQuantity(currentRents, rule.id);
+				const newQty = getRequestedEquipmentQuantity(
+					req.body.equipment,
+					rule.id,
+				);
+				if (newQty === oldQty) continue; // nothing changed for this equipment type
 
-			
+				const delta = newQty - oldQty;
+				if (delta > 0) {
+					await facilityDao.decrementEquipmentAvailability(rule.id, delta);
+				} else {
+					await facilityDao.incrementEquipmentAvailability(rule.id, -delta);
+				}
+
+				if (oldQty === 0) {
+					await reservationDao.addRent(reservationId, rule.id, newQty);
+				} else if (newQty === 0) {
+					await reservationDao.deleteRent(reservationId, rule.id);
+				} else {
+					await reservationDao.updateRentQuantity(
+						reservationId,
+						rule.id,
+						newQty,
+					);
+				}
+			}
+
+			const updatedEquipment =
+				await reservationDao.getRentsByReservation(reservationId);
+			res.json({ ...reservation, equipment: updatedEquipment });
 		} catch (err) {
 			console.error(err);
 			res.status(500).json({ error: "Database error" });
