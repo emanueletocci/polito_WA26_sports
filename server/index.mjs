@@ -168,25 +168,11 @@ app.post("/api/login-totp", isLoggedIn, async (req, res) => {
 			// Persist the consumed step (replay protection) and reset the score to 0
 			await userDao.updateLastTotpStep(req.user.id, req.user.lastTotpStep);
 			await userDao.resetScore(req.user.id);
-			req.user.score = 0; // keep the in-memory copy consistent with the DB
-
-			// TODO: CONTROLLARE STO FATTO NON MI PIACE
-			// IMPORTANT: since the whole user object is stored in the session (not just the id),
-			// the session store still holds the OLD score/lastTotpStep from the initial login.
-			// Re-calling req.login() re-serializes the updated req.user into the session store,
-			// otherwise a subsequent request in the same session would see stale values again
-			// (e.g. the replay-protection check could be bypassed on a second TOTP attempt).
-			req.login(req.user, (err) => {
-				if (err) {
-					console.log(err);
-					return res.status(503).json({ error: "Database error" });
-				}
-				return res.json({ otp: "authorized" });
-			});
 		} catch (err) {
 			console.log(err);
 			return res.status(503).json({ error: "Database error" });
 		}
+		return res.json({ otp: "authorized" });
 	} else {
 		console.log("Invalid or replayed TOTP code");
 		return res.status(401).json({ error: "Cannot authenticate with TOTP" });
@@ -573,8 +559,8 @@ function clientUserInfo(req) {
 		name: user.name,
 		surname: user.surname,
 		score: user.score,
-		isTotpVerified: user.totpSecret ? true : false,
-		hasTotpEnabled: req.session.method === "totp",
+		hasTotpEnabled: user.totpSecret ? true : false,
+		isTotpVerified: req.session.method === "totp",
 	};
 }
 
