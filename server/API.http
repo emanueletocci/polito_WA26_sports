@@ -1,20 +1,28 @@
 # This file can be used for testing the API with the VS Code "REST Client" extension.
-# NOTE: the extension keeps a cookie jar per file, so once you run a login request below,
-# subsequent requests in this same file will automatically reuse the session cookie.
+# Every scenario below is SELF-CONTAINED: it starts with its own login and ends with its
+# own logout. Just click "Send Request" top to bottom within a scenario - no need to scroll
+# up to find a previous login.
 # NOTE: PUT /api/reservations/:id is currently commented out in index.mjs - not tested here yet.
 
-## Retrieve all free facilities (public, no login required).
+
+# =============================================================================
+# SCENARIO 0 - Public endpoints (no login needed)
+# =============================================================================
+
+## Retrieve all free facilities.
 GET http://localhost:3001/api/facilities HTTP/1.1
 ###
 
-## Retrieve all equipment with availability (public, no login required).
+## Retrieve all equipment with availability.
 GET http://localhost:3001/api/equipment HTTP/1.1
 ###
 
 
-# Authentication
+# =============================================================================
+# SCENARIO 1 - Basic login/logout flow with TOTP (user2)
+# =============================================================================
 
-## Login with correct credentials (user2, 2FA enabled, 1 active reservation on T1 tennis).
+## Step 1: login with correct credentials.
 POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
@@ -24,11 +32,11 @@ content-type: application/json
 }
 ###
 
-## Check current session (should return user info after the login above).
+## Step 2: check current session (should show the user info from the login above).
 GET http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
-## Second factor login (only works if you have a valid, non-expired code for user2's secret).
+## Step 3: second factor login (needs a valid, non-expired TOTP code for user2's secret).
 POST http://localhost:3001/api/login-totp HTTP/1.1
 content-type: application/json
 
@@ -37,14 +45,16 @@ content-type: application/json
 }
 ###
 
-## Logout.
+## Step 4: logout.
 DELETE http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
 
-# Reservations (require login - run a login request above first)
+# =============================================================================
+# SCENARIO 2 - View another user's reservations (user4: score -2, 2 reservations)
+# =============================================================================
 
-## Login as user4 (score -2, 2 active reservations: V1 volleyball, P1 table tennis).
+## Step 1: login.
 POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
@@ -54,12 +64,20 @@ content-type: application/json
 }
 ###
 
-## Retrieve the logged-in user's active reservations, including equipment.
+## Step 2: retrieve active reservations, including rented equipment.
 GET http://localhost:3001/api/reservations HTTP/1.1
 ###
 
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
 
-# Login as user2 for the create/delete tests below (score 0, no restrictions).
+
+# =============================================================================
+# SCENARIO 3 - Create a reservation with direct facility selection (user2)
+# =============================================================================
+
+## Step 1: login.
 POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
@@ -69,7 +87,7 @@ content-type: application/json
 }
 ###
 
-## Create a new reservation with direct facility selection (tennis, exact mandatory minimum).
+## Step 2: create reservation on a specific facility (tennis, exact mandatory minimum).
 POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
@@ -83,7 +101,26 @@ content-type: application/json
 }
 ###
 
-## Create a new reservation with automatic facility assignment (no facilityCode given).
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# =============================================================================
+# SCENARIO 4 - Create a reservation with automatic facility assignment (user2)
+# =============================================================================
+
+## Step 1: login.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "Password2!"
+}
+###
+
+## Step 2: create reservation without specifying facilityCode (cycling, auto-assigned).
 POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
@@ -96,39 +133,16 @@ content-type: application/json
 }
 ###
 
-## Delete a reservation (adjust the id to the one just created above, check the response id).
-DELETE http://localhost:3001/api/reservations/5 HTTP/1.1
-###
-
-## Verify the score was decremented after the delete above (should be -1 now for user2).
-GET http://localhost:3001/api/sessions/current HTTP/1.1
-###
-
-## Verify the cycling facility is free again after the delete above.
-GET http://localhost:3001/api/facilities HTTP/1.1
-###
-
-
-# Wrong Requests
-
-## Login with wrong password - should return 401.
-POST http://localhost:3001/api/sessions HTTP/1.1
-content-type: application/json
-
-{
-  "email": "user2@example.com",
-  "password": "WrongPassword!"
-}
-###
-
-## Access reservations without being logged in - should return 401.
+## Step 3: logout.
 DELETE http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
-GET http://localhost:3001/api/reservations HTTP/1.1
-###
 
-## Log back in as user2 for the remaining tests.
+# =============================================================================
+# SCENARIO 5 - Delete a reservation and verify its side effects (user2)
+# =============================================================================
+
+## Step 1: login.
 POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
@@ -138,7 +152,79 @@ content-type: application/json
 }
 ###
 
-## Create a reservation without the mandatory minimum equipment - should return 422.
+## Step 2: list reservations to find an id to delete (check the response for the id).
+GET http://localhost:3001/api/reservations HTTP/1.1
+###
+
+## Step 3: delete the reservation (replace 1 with the id found above).
+DELETE http://localhost:3001/api/reservations/5 HTTP/1.1
+###
+
+## Step 4: verify the score was decremented (should be one less than before Step 3).
+GET http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+## Step 5: verify the released facility is free again.
+GET http://localhost:3001/api/facilities HTTP/1.1
+###
+
+## Step 6: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# =============================================================================
+# WRONG REQUESTS - each scenario below is also self-contained
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# WR1 - Login with wrong password - should return 401.
+# -----------------------------------------------------------------------------
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "WrongPassword!"
+}
+###
+
+
+# -----------------------------------------------------------------------------
+# WR2 - Access reservations without being logged in - should return 401.
+# -----------------------------------------------------------------------------
+
+## Step 1: make sure we are logged out first.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+## Step 2: this must fail with 401.
+GET http://localhost:3001/api/reservations HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR3 - Logging out when already logged out is a successful no-op - should return 200, not 401.
+# -----------------------------------------------------------------------------
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR4 - Create a reservation without the mandatory minimum equipment - should return 422.
+# -----------------------------------------------------------------------------
+
+## Step 1: login.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "Password2!"
+}
+###
+
+## Step 2: only 1 racket instead of the mandatory 2 - should fail.
 POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
@@ -152,7 +238,26 @@ content-type: application/json
 }
 ###
 
-## Create a reservation on an already-booked facility - should return 422.
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR5 - Create a reservation on an already-booked facility - should return 422.
+# -----------------------------------------------------------------------------
+
+## Step 1: login.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "Password2!"
+}
+###
+
+## Step 2: T1 is already booked (user2's own reservation from the seed) - should fail.
 POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
@@ -166,14 +271,33 @@ content-type: application/json
 }
 ###
 
-## Immediately try to book the same facility type just released - should return 422 (30s cooldown).
-## Run this RIGHT AFTER a DELETE on a tennis reservation, within 30 seconds.
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR6 - 30-second rebooking cooldown - should return 422 if retried too soon.
+# Run Step 3 IMMEDIATELY after Step 2b (within 30 seconds) for the test to be meaningful.
+# -----------------------------------------------------------------------------
+
+## Step 1: login.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "Password2!"
+}
+###
+
+## Step 2: book a tennis facility to trigger the cooldown once deleted.
 POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
 {
   "facilityTypeId": 1,
-  "facilityCode": "T2",
+  "facilityCode": "T3",
   "equipment": [
     { "equipmentId": 1, "quantity": 2 },
     { "equipmentId": 2, "quantity": 3 }
@@ -181,12 +305,58 @@ content-type: application/json
 }
 ###
 
-## Delete a reservation that does not exist - should return 404.
+## Step 2b: delete it right away (replace the id with the one returned by Step 2).
+DELETE http://localhost:3001/api/reservations/6 HTTP/1.1
+###
+
+## Step 3: try to book tennis again immediately - should fail with the cooldown error.
+POST http://localhost:3001/api/reservations HTTP/1.1
+content-type: application/json
+
+{
+  "facilityTypeId": 1,
+  "facilityCode": "T3",
+  "equipment": [
+    { "equipmentId": 1, "quantity": 2 },
+    { "equipmentId": 2, "quantity": 3 }
+  ]
+}
+###
+
+## Step 4: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR7 - Delete a reservation that does not exist - should return 404.
+# -----------------------------------------------------------------------------
+
+## Step 1: login.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user2@example.com",
+  "password": "Password2!"
+}
+###
+
+## Step 2: this id does not exist - should fail with 404.
 DELETE http://localhost:3001/api/reservations/9999 HTTP/1.1
 ###
 
-## Delete a reservation belonging to another user - should return 404 (not 403, to avoid leaking info).
-## Log in as user3 first, then try to delete user2's/user4's reservation id (e.g. 1, 3, or 4).
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR8 - Delete a reservation belonging to another user - should return 404 (not 403,
+# to avoid revealing that the reservation exists at all).
+# -----------------------------------------------------------------------------
+
+## Step 1: login as user3.
 POST http://localhost:3001/api/sessions HTTP/1.1
 content-type: application/json
 
@@ -196,10 +366,31 @@ content-type: application/json
 }
 ###
 
+## Step 2: reservation id 1 belongs to user2, not user3 - should fail with 404.
 DELETE http://localhost:3001/api/reservations/1 HTTP/1.1
 ###
 
-## Negative-score user (user3, score -1) tries to request MORE than the mandatory minimum - should return 422.
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR9 - Negative-score user (user3, score -1) requests MORE than the mandatory
+# minimum - should return 422.
+# -----------------------------------------------------------------------------
+
+## Step 1: login.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user3@example.com",
+  "password": "Password3!"
+}
+###
+
+## Step 2: 3 rackets requested, but mandatory minimum is 2 - should fail (negative score).
 POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
@@ -213,7 +404,27 @@ content-type: application/json
 }
 ###
 
-## Negative-score user (user3) requests EXACTLY the mandatory minimum - should succeed.
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR10 - Negative-score user (user3) requests EXACTLY the mandatory minimum -
+# should succeed.
+# -----------------------------------------------------------------------------
+
+## Step 1: login.
+POST http://localhost:3001/api/sessions HTTP/1.1
+content-type: application/json
+
+{
+  "email": "user3@example.com",
+  "password": "Password3!"
+}
+###
+
+## Step 2: exactly the mandatory minimum - should succeed.
 POST http://localhost:3001/api/reservations HTTP/1.1
 content-type: application/json
 
@@ -225,4 +436,8 @@ content-type: application/json
     { "equipmentId": 2, "quantity": 3 }
   ]
 }
+###
+
+## Step 3: logout.
+DELETE http://localhost:3001/api/sessions/current HTTP/1.1
 ###

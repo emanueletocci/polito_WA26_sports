@@ -61,7 +61,7 @@ const createReservation = (userId, facilityCode) => {
 // Marks a reservation as cancelled and records the release time (used for the 30s rebooking rule).
 const cancelReservation = (id) => {
 	return new Promise((resolve, reject) => {
-		const sql = `UPDATE reservations SET status = 'cancelled', released_at = datetime('now') WHERE id = ?`;
+		const sql = `UPDATE reservations SET status = 'cancelled', released_at = datetime('now', 'localtime') WHERE id = ?`;
 		db.run(sql, [id], function (err) {
 			if (err) reject(err);
 			else if (this.changes !== 1) resolve({ error: "Reservation not found." });

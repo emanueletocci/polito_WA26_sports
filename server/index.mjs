@@ -573,8 +573,8 @@ function clientUserInfo(req) {
 		name: user.name,
 		surname: user.surname,
 		score: user.score,
-		canDoTotp: user.totpSecret ? true : false,
-		isTotp: req.session.method === "totp",
+		isTotpVerified: user.totpSecret ? true : false,
+		hasTotpEnabled: req.session.method === "totp",
 	};
 }
 
