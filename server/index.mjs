@@ -20,6 +20,7 @@ import utc from "dayjs/plugin/utc.js";
 dayjs.extend(utc);
 
 const responseDelay = 1000;
+const REBOOKING_COOLDOWN_SECONDS = 30;
 
 /*** init express and set-up the middlewares ***/
 const app = express();
@@ -33,7 +34,9 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-/*** Passport ***/
+// -----------------------------------------------------------------------------
+// Passport
+// -----------------------------------------------------------------------------
 
 /** Set up authentication strategy to search in the DB a user with a matching password.
  * The user object will contain all fields returned by userDao.getUser
@@ -126,18 +129,10 @@ function isTotp(req, res, next) {
 	return res.status(401).json({ error: "Missing TOTP authentication" });
 }
 
-/*** Utility Functions ***/
+// -----------------------------------------------------------------------------
+// Auth APIs
+// -----------------------------------------------------------------------------
 
-// Regola esplicita del testo: non è possibile ri-prenotare un impianto dello stesso tipo
-// entro 30 secondi dal rilascio da parte dello stesso utente.
-const REBOOKING_COOLDOWN_SECONDS = 30;
-
-// This function is used to format express-validator errors as strings
-const errorFormatter = ({ location, msg, param, value, nestedErrors }) => {
-	return `${location}[${param}]: ${msg}`;
-};
-
-/** Auth APIs ***/
 // POST /api/sessions
 // This route is used for performing login (email + password only).
 app.post("/api/sessions", function (req, res, next) {
@@ -214,7 +209,9 @@ app.delete("/api/sessions/current", (req, res) => {
 	});
 });
 
-/*** Facilities & Equipment APIs (pubbliche, nessun login richiesto) ***/
+// -----------------------------------------------------------------------------
+// Facilities & Equipment APIs (public, no login)
+// -----------------------------------------------------------------------------
 
 // GET /api/facilities
 // Retrieve the list of available facilities
@@ -240,7 +237,9 @@ app.get("/api/equipment", async (req, res) => {
 	}
 });
 
-/*** Reservations APIs (richiedono login) ***/
+// -----------------------------------------------------------------------------
+// Reservations APIs (login required)
+// -----------------------------------------------------------------------------
 
 // TODO: CONTROLLARE
 // GET /api/reservations
@@ -375,7 +374,9 @@ app.post(
 // Cancella una prenotazione: ripristina disponibilità, decrementa lo score,
 // registra il rilascio per la regola dei 30 secondi.
 
-/*** Users APIs ***/
+// -----------------------------------------------------------------------------
+// Users APIs
+// -----------------------------------------------------------------------------
 
 function clientUserInfo(req) {
 	const user = req.user;
@@ -390,7 +391,14 @@ function clientUserInfo(req) {
 	};
 }
 
-/** Utility functions ***/
+// -----------------------------------------------------------------------------
+// Utiity function
+// -----------------------------------------------------------------------------
+
+// This function is used to format express-validator errors as strings
+function errorFormatter({ location, msg, param, value, nestedErrors }) {
+	return `${location}[${param}]: ${msg}`;
+}
 
 // Returns { code } if a valid facility is found, otherwise { error }.
 async function resolveFacility(facilityTypeId, facilityCode) {
