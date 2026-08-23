@@ -41,7 +41,7 @@ POST http://localhost:3001/api/login-totp HTTP/1.1
 content-type: application/json
 
 {
-  "code": "887976"
+  "code": "714651"
 }
 ###
 
@@ -157,7 +157,7 @@ GET http://localhost:3001/api/reservations HTTP/1.1
 ###
 
 ## Step 3: delete the reservation (replace 1 with the id found above).
-DELETE http://localhost:3001/api/reservations/5 HTTP/1.1
+DELETE http://localhost:3001/api/reservations/7 HTTP/1.1
 ###
 
 ## Step 4: verify the score was decremented (should be one less than before Step 3).

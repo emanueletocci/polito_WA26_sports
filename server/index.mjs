@@ -56,17 +56,16 @@ passport.use(
 
 // Serializing in the session the user object given from LocalStrategy(verify).
 passport.serializeUser(function (user, callback) {
-	// this user is id + email + name + surname + score + totpSecret + lastTotpStep
-	callback(null, user);
+	// only store the user id in the session just because the user object contains dynamic fields (score, lastTotpStep) that may change during the session.
+	// So, to avoid mismatches between the session and the DB, we only store the user id in the session and retrieve the full user object from the DB on every request.
+	callback(null, user.id); 
 });
 
 // Starting from the data in the session, we extract the current (logged-in) user.
-passport.deserializeUser(function (user, callback) {
-	// this user is id + email + name + surname + score + totpSecret + lastTotpStep
-	// if needed, we can do extra check here (e.g., double check that the user is still in the database, etc.)
-	// e.g.: return userDao.getUserById(user.id).then(u => callback(null, u)).catch(err => callback(err, null));
-
-	return callback(null, user); // this will be available in req.user
+passport.deserializeUser(function (id, callback) {
+  userDao.getUserById(id)
+    .then(user => callback(null, user))
+    .catch(err => callback(err, null));
 });
 
 // Required for Passport to work correctly (was missing): initializes Passport's
@@ -510,7 +509,7 @@ app.delete(
 			// retrieve the rented equipment before cancelling, so we know how much to give back
 			const rents = await reservationDao.getRentsByReservation(reservationId);
 
-			// mark the reservation as cancelled (this also records released_at,
+			// mark the reservation as cancelled (this also records released_at)
 			await reservationDao.cancelReservation(reservationId);
 
 			// restore the facility to "free"
@@ -527,19 +526,7 @@ app.delete(
 			// decrement the user's score
 			await userDao.decrementScore(req.user.id);
 
-			// keep the in-session copy consistent with the DB, then re-serialize it
-			// into the session store (same pattern already used in login-totp),
-			// otherwise req.user.score would stay stale for the rest of the session
-
-			// TODO: check this behavior
-			req.user.score -= 1;
-			req.login(req.user, (err) => {
-				if (err) {
-					console.error(err);
-					return res.status(503).json({ error: "Database error" });
-				}
-				res.status(200).json({});
-			});
+			res.status(200).json({});
 		} catch (err) {
 			console.error(err);
 			res.status(500).json({ error: "Database error" });
