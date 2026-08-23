@@ -367,6 +367,8 @@ app.post(
 
 // PUT /api/reservations/:id
 // Modifies the optional/extra equipment of an existing active reservation.
+
+/*
 app.put(
 	"/api/reservations/:id",
 	isLoggedIn,
@@ -406,27 +408,49 @@ app.put(
 				reservation.facilityTypeId,
 			);
 
-			// rule.availableQuantity already excludes what THIS reservation currently holds.
-			// We add it back so that increasing an already-held quantity isn't wrongly rejected
-			// (e.g. going from 2 to 7 rackets should only need 5 more, not be compared against
-			// the stock available to everyone else, which already excludes our own 2).
-			const adjustedRules = rules.map((rule) => ({
-				...rule,
-				availableQuantity:
-					rule.availableQuantity +
-					getRequestedEquipmentQuantity(currentRents, rule.id),
-			}));
-
-			const validation = validateEquipmentRequest(
-				adjustedRules,
-				req.body.equipment,
-				req.user.score,
+			// Reject any requested equipment id that doesn't belong to this facility type.
+			const allowedIds = rules.map((r) => r.id);
+			const hasUnknownEquipment = req.body.equipment.some(
+				(e) => !allowedIds.includes(e.equipmentId),
 			);
-			if (validation.error) {
-				return res.status(422).json({ error: validation.error });
+			if (hasUnknownEquipment) {
+				return res.status(422).json({
+					error: "Requested equipment is not valid for this facility type.",
+				});
 			}
 
-			// Apply the difference between old and new quantities, one equipment type at a time.
+			// Validate each rule directly against the quantity actually being ADDED (not the
+			// absolute total), since rule.availableQuantity already excludes what this
+			// reservation currently holds.
+			for (const rule of rules) {
+				const oldQty = getRequestedEquipmentQuantity(currentRents, rule.id);
+				const newQty = getRequestedEquipmentQuantity(
+					req.body.equipment,
+					rule.id,
+				);
+
+				if (newQty < rule.minQuantity) {
+					return res.status(422).json({
+						error: `Requested quantity for ${rule.name} is below the mandatory minimum of ${rule.minQuantity}.`,
+					});
+				}
+
+				// Negative score only blocks INCREASING a quantity; reducing is always allowed.
+				if (req.user.score < 0 && newQty > oldQty) {
+					return res.status(422).json({
+						error: `Negative score: cannot request additional ${rule.name}.`,
+					});
+				}
+
+				const extraNeeded = newQty - oldQty; // positive = need more, negative/zero = releasing or unchanged
+				if (extraNeeded > rule.availableQuantity) {
+					return res.status(422).json({
+						error: `Not enough equipment of type ${rule.name} available.`,
+					});
+				}
+			}
+
+			// Everything is valid: apply the difference for each equipment type.
 			for (const rule of rules) {
 				const oldQty = getRequestedEquipmentQuantity(currentRents, rule.id);
 				const newQty = getRequestedEquipmentQuantity(
@@ -464,10 +488,76 @@ app.put(
 		}
 	},
 );
+*/
 
-// TODO: DELETE /api/reservations/:id
-// Cancella una prenotazione: ripristina disponibilità, decrementa lo score,
-// registra il rilascio per la regola dei 30 secondi.
+// DELETE /api/reservations/:id
+// Cancels an existing active reservation: restores facility and equipment availability,
+// decrements the user's score, and records the release time (used for the 30-second cooldown rule).
+app.delete(
+	"/api/reservations/:id",
+	isLoggedIn,
+	[check("id").isInt({ min: 1 })],
+	async (req, res) => {
+		const errors = validationResult(req).formatWith(errorFormatter);
+		if (!errors.isEmpty()) {
+			return res.status(422).json(errors.errors);
+		}
+
+		const reservationId = Number(req.params.id);
+
+		try {
+			// retrieve the reservation to be cancelled
+			const reservation =
+				await reservationDao.getReservationById(reservationId);
+
+			// check: exists? belongs to THIS user? still active?
+			if (
+				reservation.error ||
+				reservation.userId !== req.user.id ||
+				reservation.status !== "active"
+			) {
+				return res.status(404).json({ error: "Reservation not found." });
+			}
+
+			// retrieve the rented equipment before cancelling, so we know how much to give back
+			const rents = await reservationDao.getRentsByReservation(reservationId);
+
+			// mark the reservation as cancelled (this also records released_at,
+			await reservationDao.cancelReservation(reservationId);
+
+			// restore the facility to "free"
+			await facilityDao.setFacilityBooked(reservation.facilityCode, false);
+
+			// restore the availability of every equipment type that was rented
+			for (const rent of rents) {
+				await facilityDao.incrementEquipmentAvailability(
+					rent.equipmentId,
+					rent.quantity,
+				);
+			}
+
+			// decrement the user's score
+			await userDao.decrementScore(req.user.id);
+
+			// keep the in-session copy consistent with the DB, then re-serialize it
+			// into the session store (same pattern already used in login-totp),
+			// otherwise req.user.score would stay stale for the rest of the session
+
+			// TODO: check this behavior
+			req.user.score -= 1;
+			req.login(req.user, (err) => {
+				if (err) {
+					console.error(err);
+					return res.status(503).json({ error: "Database error" });
+				}
+				res.status(200).json({});
+			});
+		} catch (err) {
+			console.error(err);
+			res.status(500).json({ error: "Database error" });
+		}
+	},
+);
 
 // -----------------------------------------------------------------------------
 // Utiity functions
