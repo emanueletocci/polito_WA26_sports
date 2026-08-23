@@ -2,9 +2,9 @@
 
 import db from "./db.mjs";
 
-// ============================================================
+// -----------------------------------------------------------------------------
 // RESERVATIONS
-// ============================================================
+// -----------------------------------------------------------------------------
 
 // Returns all ACTIVE reservations for a given user, joined with facility info.
 // Used by: GET /api/reservations
@@ -91,9 +91,9 @@ const getLastReleaseTime = (userId, facilityTypeId) => {
 	});
 };
 
-// ============================================================
+// -----------------------------------------------------------------------------
 // RENTS (equipment rented for a reservation)
-// ============================================================
+// -----------------------------------------------------------------------------
 
 // Returns all equipment rented for a given reservation, joined with equipment info.
 const getRentsByReservation = (reservationId) => {
