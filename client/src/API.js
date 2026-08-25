@@ -134,6 +134,8 @@ const logOut = async () => {
 };
 
 const API = {
+	getFacilities,
+	getEquipment,
 	logIn,
 	getUserInfo,
 	logOut,

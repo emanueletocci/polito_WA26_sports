@@ -11,8 +11,8 @@ function Home() {
 	useEffect(() => {
 		API.getFacilities()
 			.then((facilities) => {
-                // Retrieve the grouped facilities by type using the utility function
-                // and setting the state
+				// Retrieve the grouped facilities by type using the utility function
+				// and setting the state
 				const groups = groupFacilitiesByType(facilities);
 				setFacilityGroups(groups);
 			})
@@ -20,7 +20,7 @@ function Home() {
 				console.error("Error fetching facilities:", err);
 			});
 	}, []); // The empty array means that the call is executed only at the first mount
-    
+
 	return (
 		<Container fluid>
 			<Row className="g-3 align-items-center mb-3">
@@ -34,7 +34,13 @@ function Home() {
 			</Row>
 
 			<h2>Impianti per tipologia</h2>
-			<Row xs={1} sm={2} lg={3} className="g-3 mb-4"></Row>
+			<Row xs={1} sm={2} lg={3} className="g-3 mb-4">
+				{facilityGroups.map((f) => (
+					<Col key={f.facilityTypeId}>
+						<FacilityCard group={f} />
+					</Col>
+				))}
+			</Row>
 
 			<h2>Attrezzatura disponibile</h2>
 			{/* qui andrà la tabella equipment */}

@@ -76,7 +76,7 @@ function groupFacilitiesByType(facilities) {
 }
 */
 
-function groupFacilitiesByType(facilities) {
+export default function groupFacilitiesByType(facilities) {
 	// Reduce iterates through elements, combining the current item with an accumulator value via callback `f`.
 	// reduce(callback, initialValue) where callback is a function that takes the accumulator and the current item, and initialValue is the starting value for the accumulator.
 
@@ -107,6 +107,3 @@ function groupFacilitiesByType(facilities) {
 	}, []); // [] is the initial value for the accumulator, starting with an empty array to hold the grouped facilities.
 }
 
-export default {
-	groupFacilitiesByType,
-};
