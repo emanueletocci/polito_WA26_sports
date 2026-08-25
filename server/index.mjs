@@ -58,14 +58,15 @@ passport.use(
 passport.serializeUser(function (user, callback) {
 	// only store the user id in the session just because the user object contains dynamic fields (score, lastTotpStep) that may change during the session.
 	// So, to avoid mismatches between the session and the DB, we only store the user id in the session and retrieve the full user object from the DB on every request.
-	callback(null, user.id); 
+	callback(null, user.id);
 });
 
 // Starting from the data in the session, we extract the current (logged-in) user.
 passport.deserializeUser(function (id, callback) {
-  userDao.getUserById(id)
-    .then(user => callback(null, user))
-    .catch(err => callback(err, null));
+	userDao
+		.getUserById(id)
+		.then((user) => callback(null, user))
+		.catch((err) => callback(err, null));
 });
 
 // Required for Passport to work correctly (was missing): initializes Passport's
@@ -199,22 +200,39 @@ app.delete("/api/sessions/current", (req, res) => {
 // -----------------------------------------------------------------------------
 
 // GET /api/facilities
-// Retrieve the list of all facilities
+// This route also handles "status=?" (optional) query parameter, accessed via req.query.status.
+// Allowed values: "free", "booked". Without it, returns ALL facilities (used by the public
+// homepage to compute per-type counts).
 app.get("/api/facilities", async (req, res) => {
 	try {
-		const facilities = await facilityDao.getAllFacilities();
+		const facilities = await facilityDao.getFacilities(req.query.status);
 		res.json(facilities);
 	} catch (err) {
+		if (err.error) {
+			// invalid filter value provided by the client
+			return res.status(422).json(err);
+		}
 		console.error(err);
 		res.status(500).json({ error: "Database error" });
 	}
 });
 
 // GET /api/equipment
-// Retrieve the list of available equipment
+// Optional query param: facilityTypeId (filters to equipment rules for that facility type,
+// including minQuantity). Without it, returns all equipment (public homepage).
 app.get("/api/equipment", async (req, res) => {
 	try {
-		const equipment = await facilityDao.getEquipmentAvailability();
+		const { facilityTypeId } = req.query;
+		let equipment;
+
+		if (facilityTypeId) {
+			equipment = await facilityDao.getEquipmentRulesForFacilityType(
+				Number(facilityTypeId),
+			);
+		} else {
+			equipment = await facilityDao.getEquipmentAvailability();
+		}
+
 		res.json(equipment);
 	} catch (err) {
 		console.error(err);

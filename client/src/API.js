@@ -28,39 +28,13 @@ function getJson(httpResponsePromise) {
 	});
 }
 
+
 /**
- * Getting from the server side and returning the list of available facilities.
+ * Getting from the server side the list of ALL facilities (both free and booked),
+ * each with its type. The client groups/counts them per facilityType for the homepage.
  */
-
-// TODO: CONTROLLARE server/index.mjs. Attualmente il DAO restituisce solamente i campi liberi ma probabilmente ha piú senso modificare la query al DB in modo che restituisca tutti i campi
-const getFacilities = async (filter) => {
-	return getJson(
-		filter
-			? fetch(SERVER_URL + "films?filter=" + filter, { credentials: "include" })
-			: fetch(SERVER_URL + "films", { credentials: "include" }),
-	).then((response) => {
-        if (!response.ok) {
-            throw Error(response.statusText);
-        }
-        let type = response.headers.get('Content-Type');
-
-        if (type !== 'application/json'){
-            throw new TypeError('Expected JSON, got ${type}');
-        }
-
-        return response;
-		return response.map((film) => {
-			const clientFilm = {
-				id: film.id,
-				title: film.title,
-				favorite: film.favorite,
-				rating: film.rating,
-				user: film.user,
-			};
-			if (film.watchDate != null) clientFilm.watchDate = dayjs(film.watchDate);
-			return clientFilm;
-		});
-	});
+const getFacilities = async () => {
+	return getJson(fetch(SERVER_URL + "facilities", { credentials: "include" }));
 };
 
 /**

@@ -6,9 +6,17 @@ import db from "./db.mjs";
 // FACILITY TYPES / FACILITIES
 // ============================================================
 
-// Returns ALL facilities (both free and booked), each with its type and status.
-// The client derives, per type: total count, free count, booked count.
-const getAllFacilities = () => {
+// Filter functions applied in JS, after a single unfiltered query to the DB.
+// This mirrors the "filterValues" pattern used for films in the lab.
+const facilityFilterValues = {
+	free: { filterFunction: (f) => f.isBooked === 0 },
+	booked: { filterFunction: (f) => f.isBooked === 1 },
+};
+
+// Returns facilities (each with its type), optionally filtered by status ("free" | "booked").
+// Without a filter, returns ALL facilities - this is what the public homepage needs
+// to compute per-type counts (free/booked/total).
+const getFacilities = (filter) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
       SELECT f.code, f.is_booked AS isBooked, ft.id AS facilityTypeId, ft.name AS facilityTypeName
@@ -16,44 +24,23 @@ const getAllFacilities = () => {
       JOIN facility_types ft ON f.facility_type_id = ft.id
     `;
 		db.all(sql, [], (err, rows) => {
-			if (err) reject(err);
-			else resolve(rows);
-		});
-	});
-};
-
-// Returns the list of all currently free facilities, each with its type.
-// The client can derive the count per type (for the public home page) by grouping
-// this array, and can filter by facilityTypeId when the user selects a facility directly.
-const getFreeFacilities = () => {
-	return new Promise((resolve, reject) => {
-		const sql = `
-      SELECT f.code, ft.id AS facilityTypeId, ft.name AS facilityTypeName
-      FROM facilities f
-      JOIN facility_types ft ON f.facility_type_id = ft.id
-      WHERE f.is_booked = 0
-    `;
-		db.all(sql, [], (err, rows) => {
-			if (err) reject(err);
-			else resolve(rows);
-		});
-	});
-};
-
-// Returns the list of all currently booked facilities, each with its type.
-// The client can derive the count per type (for the public home page) by grouping
-// this array, and can filter by facilityTypeId when the user selects a facility directly.
-const getReservedFacilities = () => {
-	return new Promise((resolve, reject) => {
-		const sql = `
-      SELECT f.code, ft.id AS facilityTypeId, ft.name AS facilityTypeName
-      FROM facilities f
-      JOIN facility_types ft ON f.facility_type_id = ft.id
-      WHERE f.is_booked = 1
-    `;
-		db.all(sql, [], (err, rows) => {
-			if (err) reject(err);
-			else resolve(rows);
+			if (err) {
+				reject(err);
+				return;
+			}
+			// Check if a filter is specified, otherwise just return the complete list.
+			if (filter) {
+				// WARNING: using facilityFilterValues[filter] directly would also match
+				// inherited properties like 'constructor', but then .filterFunction would
+				// not exist - hasOwnProperty avoids that trap, checking only own properties of the object.
+				if (facilityFilterValues.hasOwnProperty(filter)) {
+					resolve(rows.filter(facilityFilterValues[filter].filterFunction));
+				} else {
+					reject({ error: "The specified filter is not available" });
+				}
+				return;
+			}
+			resolve(rows);
 		});
 	});
 };
@@ -95,7 +82,6 @@ const getOneFreeFacilityByType = (facilityTypeId) => {
 	});
 };
 
-// TODO: testare
 // Marks a facility as booked (1) or free (0).
 const setFacilityBooked = (code, booked) => {
 	return new Promise((resolve, reject) => {
@@ -196,13 +182,11 @@ const incrementEquipmentAvailability = (equipmentId, quantity) => {
 };
 
 export default {
-	getFreeFacilities,
-	getReservedFacilities,
+	getFacilities,
 	getAllFacilityTypes,
 	getFacilityByCode,
 	getOneFreeFacilityByType,
 	setFacilityBooked,
-	getAllFacilities,
 	getEquipmentAvailability,
 	getEquipmentRulesForFacilityType,
 	getEquipmentById,
