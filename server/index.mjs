@@ -198,12 +198,11 @@ app.delete("/api/sessions/current", (req, res) => {
 // Facilities & Equipment APIs (public, no login)
 // -----------------------------------------------------------------------------
 
-// TODO: CONTROLLARE FORSE SERVONO TUTTE LE FACILITIES, ANCHE QUELLE OCCUPATE!!!
 // GET /api/facilities
-// Retrieve the list of available facilities
+// Retrieve the list of all facilities
 app.get("/api/facilities", async (req, res) => {
 	try {
-		const facilities = await facilityDao.getFreeFacilities();
+		const facilities = await facilityDao.getAllFacilities();
 		res.json(facilities);
 	} catch (err) {
 		console.error(err);

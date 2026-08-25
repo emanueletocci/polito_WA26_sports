@@ -2,9 +2,9 @@
    Esegui con: node test-dao.mjs
    Assicurati che database.db sia nella stessa cartella (o aggiorna il path in db.mjs). */
 
-import userDao from "./dao-users.mjs";
-import facilityDao from "./dao-facilities.mjs";
-import reservationDao from "./dao-reservations.mjs";
+import userDao from "../dao-users.mjs";
+import facilityDao from "../dao-facilities.mjs";
+import reservationDao from "../dao-reservations.mjs";
 
 async function main() {
 	console.log("=== Test connessione DB + DAO ===\n");

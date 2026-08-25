@@ -9,7 +9,7 @@
 # SCENARIO 0 - Public endpoints (no login needed)
 # =============================================================================
 
-## Retrieve all free facilities.
+## Retrieve ALL facilities (both free and booked), with status - used for the public homepage counts.
 GET http://localhost:3001/api/facilities HTTP/1.1
 ###
 
@@ -164,7 +164,7 @@ DELETE http://localhost:3001/api/reservations/11 HTTP/1.1
 GET http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
-## Step 5: verify the released facility is free again.
+## Step 5: verify the released facility is free again (check isBooked = 0 for its code in the response).
 GET http://localhost:3001/api/facilities HTTP/1.1
 ###
 

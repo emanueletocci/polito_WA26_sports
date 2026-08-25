@@ -6,6 +6,22 @@ import db from "./db.mjs";
 // FACILITY TYPES / FACILITIES
 // ============================================================
 
+// Returns ALL facilities (both free and booked), each with its type and status.
+// The client derives, per type: total count, free count, booked count.
+const getAllFacilities = () => {
+	return new Promise((resolve, reject) => {
+		const sql = `
+      SELECT f.code, f.is_booked AS isBooked, ft.id AS facilityTypeId, ft.name AS facilityTypeName
+      FROM facilities f
+      JOIN facility_types ft ON f.facility_type_id = ft.id
+    `;
+		db.all(sql, [], (err, rows) => {
+			if (err) reject(err);
+			else resolve(rows);
+		});
+	});
+};
+
 // Returns the list of all currently free facilities, each with its type.
 // The client can derive the count per type (for the public home page) by grouping
 // this array, and can filter by facilityTypeId when the user selects a facility directly.
@@ -186,6 +202,7 @@ export default {
 	getFacilityByCode,
 	getOneFreeFacilityByType,
 	setFacilityBooked,
+	getAllFacilities,
 	getEquipmentAvailability,
 	getEquipmentRulesForFacilityType,
 	getEquipmentById,
