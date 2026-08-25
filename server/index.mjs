@@ -198,6 +198,7 @@ app.delete("/api/sessions/current", (req, res) => {
 // Facilities & Equipment APIs (public, no login)
 // -----------------------------------------------------------------------------
 
+// TODO: CONTROLLARE FORSE SERVONO TUTTE LE FACILITIES, ANCHE QUELLE OCCUPATE!!!
 // GET /api/facilities
 // Retrieve the list of available facilities
 app.get("/api/facilities", async (req, res) => {
