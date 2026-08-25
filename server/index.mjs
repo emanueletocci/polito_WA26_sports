@@ -230,7 +230,7 @@ app.get("/api/equipment", async (req, res) => {
 				Number(facilityTypeId),
 			);
 		} else {
-			equipment = await facilityDao.getEquipmentAvailability();
+			equipment = await facilityDao.getEquipment();
 		}
 
 		res.json(equipment);

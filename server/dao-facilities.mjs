@@ -3,7 +3,7 @@
 import db from "./db.mjs";
 
 // ============================================================
-// FACILITY TYPES / FACILITIES
+// FACILITIES
 // ============================================================
 
 // Filter functions applied in JS, after a single unfiltered query to the DB.
@@ -100,7 +100,7 @@ const setFacilityBooked = (code, booked) => {
 
 // Returns, for each equipment type, name and available quantity.
 // Used by the public home page (no login required).
-const getEquipmentAvailability = () => {
+const getEquipment = () => {
 	return new Promise((resolve, reject) => {
 		const sql =
 			"SELECT id, name, total_quantity AS totalQuantity, available_quantity AS availableQuantity FROM equipment";
@@ -187,7 +187,7 @@ export default {
 	getFacilityByCode,
 	getOneFreeFacilityByType,
 	setFacilityBooked,
-	getEquipmentAvailability,
+	getEquipment,
 	getEquipmentRulesForFacilityType,
 	getEquipmentById,
 	decrementEquipmentAvailability,

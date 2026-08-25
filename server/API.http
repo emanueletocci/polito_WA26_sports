@@ -13,6 +13,23 @@
 GET http://localhost:3001/api/facilities HTTP/1.1
 ###
 
+## Retrieve only the free facilities (status=free filter, applied in JS via facilityFilterValues).
+GET http://localhost:3001/api/facilities?status=free HTTP/1.1
+###
+
+## Retrieve only the booked facilities (status=booked filter).
+GET http://localhost:3001/api/facilities?status=booked HTTP/1.1
+###
+
+## Unknown filter value - should return 422 with { error: "The specified filter is not available" }.
+GET http://localhost:3001/api/facilities?status=pippo HTTP/1.1
+###
+
+## Prototype-pollution style filter value - hasOwnProperty must reject this, not silently crash.
+## Should return 422, NOT 500.
+GET http://localhost:3001/api/facilities?status=constructor HTTP/1.1
+###
+
 ## Retrieve all equipment with availability.
 GET http://localhost:3001/api/equipment HTTP/1.1
 ###
@@ -101,7 +118,11 @@ content-type: application/json
 }
 ###
 
-## Step 3: logout.
+## Step 3: verify T2 now shows up as booked via the status filter.
+GET http://localhost:3001/api/facilities?status=booked HTTP/1.1
+###
+
+## Step 4: logout.
 DELETE http://localhost:3001/api/sessions/current HTTP/1.1
 ###
 
@@ -166,6 +187,10 @@ GET http://localhost:3001/api/sessions/current HTTP/1.1
 
 ## Step 5: verify the released facility is free again (check isBooked = 0 for its code in the response).
 GET http://localhost:3001/api/facilities HTTP/1.1
+###
+
+## Step 5b: same check, but using the status=free filter directly - the code should appear here.
+GET http://localhost:3001/api/facilities?status=free HTTP/1.1
 ###
 
 ## Step 6: logout.
@@ -440,4 +465,19 @@ content-type: application/json
 
 ## Step 3: logout.
 DELETE http://localhost:3001/api/sessions/current HTTP/1.1
+###
+
+
+# -----------------------------------------------------------------------------
+# WR11 - Facilities filter: an unsupported "status" value must NOT be treated as
+# a valid filter and must NOT crash the server - should return 422.
+# -----------------------------------------------------------------------------
+
+## Random, made-up filter value - should fail with 422 and a clear error message.
+GET http://localhost:3001/api/facilities?status=xyz HTTP/1.1
+###
+
+## Case sensitivity check: "Free" (capital F) is NOT the same key as "free" in
+## facilityFilterValues - should also fail with 422, not silently return free facilities.
+GET http://localhost:3001/api/facilities?status=Free HTTP/1.1
 ###
