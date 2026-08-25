@@ -24,16 +24,10 @@ function Home() {
 	return (
 		<Container fluid>
 			<Row className="g-3 align-items-center mb-3">
-				<Col xs={12} lg={8}>
-					<h1>Disponibilità impianti e attrezzatura</h1>
-					<p className="text-muted">
-						Dati pubblici, aggiornati in tempo reale. Non è richiesto l'accesso
-						per consultarli.
-					</p>
-				</Col>
+				<h1>Facility and equipment availability</h1>
 			</Row>
 
-			<h2>Impianti per tipologia</h2>
+			<h2>Facilities by type</h2>
 			<Row xs={1} sm={2} lg={3} className="g-3 mb-4">
 				{facilityGroups.map((f) => (
 					<Col key={f.facilityTypeId}>
@@ -42,7 +36,7 @@ function Home() {
 				))}
 			</Row>
 
-			<h2>Attrezzatura disponibile</h2>
+			<h2>Available equipment</h2>
 			{/* qui andrà la tabella equipment */}
 		</Container>
 	);
