@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Form, Button, Alert, Col, Row } from "react-bootstrap";
+import { Form, Button, Alert, Col, Row, Card } from "react-bootstrap";
 import { Link, useNavigate } from "react-router";
 import API from "../API.js";
 
@@ -94,7 +94,11 @@ function TotpForm(props) {
 function LoginForm(props) {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	// Tracks whether the user opted in for the TOTP second factor via the switch below
+	const [useTotp, setUseTotp] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
+
+	const navigate = useNavigate();
 
 	const handleSubmit = (event) => {
 		event.preventDefault();
@@ -105,51 +109,69 @@ function LoginForm(props) {
 		} else if (!password) {
 			setErrorMessage("Password cannot be empty");
 		} else {
-			props.login(credentials).catch((err) => {
-				setErrorMessage(err.error);
-			});
+			props
+				.login(credentials)
+				.then(() => {
+					// After a successful username/password login, send the user to the
+					// separate TOTP screen only if they opted in via the switch.
+					if (useTotp) navigate("/totp");
+					else navigate("/");
+				})
+				.catch((err) => {
+					setErrorMessage(err.error);
+				});
 		}
 	};
 
 	return (
 		<Row className="justify-content-center mt-5">
 			<Col xs={12} sm={8} md={6} lg={4}>
-				<h1 className="pb-3 text-center">Login</h1>
-				<Form onSubmit={handleSubmit}>
-					{errorMessage ? (
-						<Alert
-							dismissible
-							onClose={() => setErrorMessage("")}
-							variant="danger"
-						>
-							{errorMessage}
-						</Alert>
-					) : null}
-					<Form.Group className="mb-3">
-						<Form.Label>Email</Form.Label>
-						<Form.Control
-							type="email"
-							value={email}
-							placeholder="Example: john.doe@example.com"
-							onChange={(ev) => setEmail(ev.target.value)}
+				<Card className="p-4 shadow-sm">
+					<h1 className="pb-3 text-center">Login</h1>
+					<Form onSubmit={handleSubmit}>
+						{errorMessage ? (
+							<Alert
+								dismissible
+								onClose={() => setErrorMessage("")}
+								variant="danger"
+							>
+								{errorMessage}
+							</Alert>
+						) : null}
+						<Form.Group className="mb-3">
+							<Form.Label>Email</Form.Label>
+							<Form.Control
+								type="email"
+								value={email}
+								placeholder="Example: john.doe@example.com"
+								onChange={(ev) => setEmail(ev.target.value)}
+							/>
+						</Form.Group>
+						<Form.Group className="mb-3">
+							<Form.Label>Password</Form.Label>
+							<Form.Control
+								type="password"
+								value={password}
+								placeholder="Enter your password"
+								onChange={(ev) => setPassword(ev.target.value)}
+							/>
+						</Form.Group>
+						<Form.Check
+							type="switch"
+							id="totp-switch"
+							className="mb-3"
+							label="Login with two-factor verification (TOTP)"
+							checked={useTotp}
+							onChange={(ev) => setUseTotp(ev.target.checked)}
 						/>
-					</Form.Group>
-					<Form.Group className="mb-3">
-						<Form.Label>Password</Form.Label>
-						<Form.Control
-							type="password"
-							value={password}
-							placeholder="Enter your password"
-							onChange={(ev) => setPassword(ev.target.value)}
-						/>
-					</Form.Group>
-					<Button className="mt-3" type="submit">
-						Login
-					</Button>
+						<Button className="w-100" type="submit">
+							Login
+						</Button>
+					</Form>
 					<Link to="/" className="d-block mt-3 text-center">
 						Back to home
 					</Link>
-				</Form>
+				</Card>
 			</Col>
 		</Row>
 	);
