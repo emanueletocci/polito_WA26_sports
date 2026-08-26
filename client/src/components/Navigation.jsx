@@ -1,23 +1,29 @@
 import { Navbar, Nav, Button } from "react-bootstrap";
 
-function Navigation({ children }) {
-	return (
-		<>
-			<Navbar bg="primary" expand="md" variant="dark" className="mb-4 px-3">
-				<Navbar.Brand>
-					<i className="bi bi-trophy-fill mx-2"></i>
-					Sport Center
-				</Navbar.Brand>
-				<Nav className="ms-auto">
-					<Button variant="outline-light" className="me-2">
-						Guest
-					</Button>
-					<Button variant="light">Login</Button>
-				</Nav>
-			</Navbar>
+function Navigation({ loggedIn, user, loggedInTotp }) {
+	let authSection;
+	if (loggedIn) {
+		authSection = (
+			<>
+				<Navbar.Text className="text-white me-3">
+					Logged in as: {user.name}
+					{loggedInTotp ? " (2FA)" : null}
+				</Navbar.Text>
+				<Button variant="light">Logout</Button>
+			</>
+		);
+	} else {
+		authSection = <Button variant="light">Login</Button>;
+	}
 
-			{children}
-		</>
+	return (
+		<Navbar bg="primary" expand="md" variant="dark" className="mb-4 px-3">
+			<Navbar.Brand>
+				<i className="bi bi-trophy-fill mx-2"></i>
+				Sport Center
+			</Navbar.Brand>
+			<Nav className="ms-auto">{authSection}</Nav>
+		</Navbar>
 	);
 }
 
