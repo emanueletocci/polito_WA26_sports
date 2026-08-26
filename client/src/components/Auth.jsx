@@ -51,40 +51,42 @@ function TotpForm(props) {
 
 	return (
 		<Row className="justify-content-center mt-5">
-			<Col>
-				<h2>Second Factor Authentication</h2>
-				<h5>Please enter the code that you read on your device</h5>
-				<Form onSubmit={handleSubmit}>
-					{errorMessage ? (
-						<Alert
+			<Col md={5}>
+				<Card className="p-3 shadow-sm">
+					<h2>Second Factor Authentication</h2>
+					<h5>Please enter the code that you read on your device</h5>
+					<Form onSubmit={handleSubmit}>
+						{errorMessage ? (
+							<Alert
+								variant="danger"
+								dismissible
+								onClick={() => setErrorMessage("")}
+							>
+								{errorMessage}
+							</Alert>
+						) : (
+							""
+						)}
+						<Form.Group controlId="totpCode">
+							<Form.Label>Code</Form.Label>
+							<Form.Control
+								type="text"
+								value={totpCode}
+								onChange={(ev) => setTotpCode(ev.target.value)}
+							/>
+						</Form.Group>
+						<Button className="my-2" type="submit">
+							Validate
+						</Button>
+						<Button
+							className="my-2 mx-2"
 							variant="danger"
-							dismissible
-							onClick={() => setErrorMessage("")}
+							onClick={() => navigate("/")}
 						>
-							{errorMessage}
-						</Alert>
-					) : (
-						""
-					)}
-					<Form.Group controlId="totpCode">
-						<Form.Label>Code</Form.Label>
-						<Form.Control
-							type="text"
-							value={totpCode}
-							onChange={(ev) => setTotpCode(ev.target.value)}
-						/>
-					</Form.Group>
-					<Button className="my-2" type="submit">
-						Validate
-					</Button>
-					<Button
-						className="my-2 mx-2"
-						variant="danger"
-						onClick={() => navigate("/")}
-					>
-						Skip
-					</Button>
-				</Form>
+							Skip
+						</Button>
+					</Form>
+				</Card>
 			</Col>
 		</Row>
 	);
@@ -94,11 +96,7 @@ function TotpForm(props) {
 function LoginForm(props) {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
-	// Tracks whether the user opted in for the TOTP second factor via the switch below
-	const [useTotp, setUseTotp] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
-
-	const navigate = useNavigate();
 
 	const handleSubmit = (event) => {
 		event.preventDefault();
@@ -109,17 +107,12 @@ function LoginForm(props) {
 		} else if (!password) {
 			setErrorMessage("Password cannot be empty");
 		} else {
-			props
-				.login(credentials)
-				.then(() => {
-					// After a successful username/password login, send the user to the
-					// separate TOTP screen only if they opted in via the switch.
-					if (useTotp) navigate("/totp");
-					else navigate("/");
-				})
-				.catch((err) => {
-					setErrorMessage(err.error);
-				});
+			// Navigation after a successful login happens automatically: LoginWithTotp,
+			// in App.jsx, re-renders based on the updated loggedIn/user state and decides
+			// whether to show the TOTP screen or redirect straight to the home page.
+			props.login(credentials).catch((err) => {
+				setErrorMessage(err.error);
+			});
 		}
 	};
 
@@ -127,7 +120,7 @@ function LoginForm(props) {
 		<Row className="justify-content-center mt-5">
 			<Col md={5}>
 				<Card className="p-3 shadow-sm">
-					<h1>Login</h1>
+					<h1 className="text-center">Login</h1>
 					<Form onSubmit={handleSubmit}>
 						{errorMessage ? (
 							<Alert
@@ -156,21 +149,13 @@ function LoginForm(props) {
 								onChange={(ev) => setPassword(ev.target.value)}
 							/>
 						</Form.Group>
-						<Form.Check
-							type="switch"
-							id="totp-switch"
-							className="mb-3"
-							label="Login with two-factor verification (TOTP)"
-							checked={useTotp}
-							onChange={(ev) => setUseTotp(ev.target.checked)}
-						/>
-						<Button className="w-100" type="submit">
+						<Button className="mt-3 w-100" type="submit">
 							Login
 						</Button>
+						<Link to="/" className="d-block mt-3 text-center">
+							Continue as guest
+						</Link>
 					</Form>
-					<Link to="/" className="d-block mt-3 text-center">
-						Back to home
-					</Link>
 				</Card>
 			</Col>
 		</Row>

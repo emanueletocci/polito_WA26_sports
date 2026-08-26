@@ -1,4 +1,5 @@
-import { Navbar, Nav } from "react-bootstrap";
+import { Navbar, Nav, Badge } from "react-bootstrap";
+import { Link } from "react-router";
 import { LoginButton, LogoutButton } from "./Auth.jsx";
 
 function Navigation({ loggedIn, user, loggedInTotp, logout }) {
@@ -6,10 +7,17 @@ function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 	if (loggedIn) {
 		authSection = (
 			<>
-				<Navbar.Text className="text-white me-3">
-					Logged in as: {user.name}
+				<Navbar.Text className="text-white me-3 fw-bold">
+					{`${user.name} ${user.surname}`}
 					{loggedInTotp ? " (2FA)" : null}
 				</Navbar.Text>
+				<Badge
+					bg="light"
+					text={user.score < 0 ? "danger" : "dark"}
+					className="me-3 text-nowrap fs-6"
+				>
+					Score: {user.score}
+				</Badge>
 				<LogoutButton logout={logout} />
 			</>
 		);
@@ -18,12 +26,12 @@ function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 	}
 
 	return (
-		<Navbar bg="primary" expand="md" variant="dark" className="mb-4 px-3">
-			<Navbar.Brand>
+		<Navbar bg="primary" expand="md" variant="dark" className="mb-2 p-3">
+			<Navbar.Brand as={Link} to="/">
 				<i className="bi bi-trophy-fill mx-2"></i>
 				Sport Center
 			</Navbar.Brand>
-			<Nav className="ms-auto">{authSection}</Nav>
+			<Nav className="ms-auto align-items-center">{authSection}</Nav>
 		</Navbar>
 	);
 }

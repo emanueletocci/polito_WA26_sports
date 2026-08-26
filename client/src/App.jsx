@@ -75,24 +75,45 @@ function App() {
 				}
 			>
 				<Route index element={<Home />} />
-				<Route
-					path="login"
-					element={
-						loggedIn ? <Navigate to="/" /> : <LoginForm login={handleLogin} />
-					}
-				/>
-				<Route
-					path="totp"
-					element={
-						<TotpForm
-							totpSuccessful={() => setLoggedInTotp(true)}
-							setLoggedIn={setLoggedIn}
-						/>
-					}
-				/>
 			</Route>
+			<Route
+				path="/login"
+				element={
+					<LoginWithTotp
+						loggedIn={loggedIn}
+						login={handleLogin}
+						user={user}
+						loggedInTotp={loggedInTotp}
+						setLoggedInTotp={setLoggedInTotp}
+						setLoggedIn={setLoggedIn}
+					/>
+				}
+			/>
 		</Routes>
 	);
+}
+
+// Decides which screen to show on the /login route, based on the current
+// authentication state: plain login form, TOTP form, or redirect to home.
+function LoginWithTotp(props) {
+	if (props.loggedIn) {
+		if (props.user.hasTotpEnabled) {
+			if (props.loggedInTotp) {
+				return <Navigate replace to="/" />;
+			} else {
+				return (
+					<TotpForm
+						totpSuccessful={() => props.setLoggedInTotp(true)}
+						setLoggedIn={props.setLoggedIn}
+					/>
+				);
+			}
+		} else {
+			return <Navigate replace to="/" />;
+		}
+	} else {
+		return <LoginForm login={props.login} />;
+	}
 }
 
 export default App;

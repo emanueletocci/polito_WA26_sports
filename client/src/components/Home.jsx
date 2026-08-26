@@ -34,13 +34,18 @@ function Home() {
 	}, []);
 
 	return (
-		<Container fluid>
-			<Row className="g-3 align-items-center mb-3">
-				<h1>Facility and equipment availability</h1>
+		<Container fluid className="p-3">
+			<Row className="mb-4">
+				<Col>
+					<h1 className="mb-1">Facility and equipment availability</h1>
+					<p className="text-muted mb-0">
+						Browse facilities by type and current equipment stock.
+					</p>
+				</Col>
 			</Row>
 
-			<h2>Facilities by type</h2>
-			<Row xs={1} sm={2} lg={3} className="g-3 mb-4">
+			<h2 className="mb-3 pb-2 border-bottom">Facilities By Type</h2>
+			<Row xs={1} sm={2} lg={3} className="g-3 mb-5">
 				{facilityGroups.map((f) => (
 					<Col key={f.facilityTypeId}>
 						<FacilityCard group={f} />
@@ -48,7 +53,7 @@ function Home() {
 				))}
 			</Row>
 
-			<h2>Available equipment</h2>
+			<h2 className="mb-3 pb-2 border-bottom">Equipment Availability</h2>
 			<EquipmentTable equipmentList={equipmentList} />
 		</Container>
 	);
