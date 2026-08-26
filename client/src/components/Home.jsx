@@ -2,11 +2,13 @@ import { Container, Row, Col } from "react-bootstrap";
 import { useEffect, useState } from "react";
 
 import API from "../API.js";
-import groupFacilitiesByType from "../utils.js";
+import { groupFacilitiesByType } from "../utils.js";
 import FacilityCard from "./FacilityCard.jsx";
+import EquipmentTable from "./EquipmentTable.jsx";
 
 function Home() {
 	const [facilityGroups, setFacilityGroups] = useState([]);
+	const [equipmentList, setEquipmentList] = useState([]);
 
 	useEffect(() => {
 		API.getFacilities()
@@ -20,6 +22,16 @@ function Home() {
 				console.error("Error fetching facilities:", err);
 			});
 	}, []); // The empty array means that the call is executed only at the first mount
+
+	useEffect(() => {
+		API.getEquipment()
+			.then((eq) => {
+				setEquipmentList(eq);
+			})
+			.catch((err) => {
+				console.error("Error fetching equipment:", err);
+			});
+	}, []);
 
 	return (
 		<Container fluid>
@@ -37,7 +49,7 @@ function Home() {
 			</Row>
 
 			<h2>Available equipment</h2>
-			{/* qui andrà la tabella equipment */}
+			<EquipmentTable equipmentList={equipmentList} />
 		</Container>
 	);
 }

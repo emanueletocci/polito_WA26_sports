@@ -42,41 +42,8 @@ facilities = [
   }
 ]
 */
-/*
+
 function groupFacilitiesByType(facilities) {
-	// Initialize an empty object to hold the grouped facilities
-	// Using an object allows us to use facilityTypeId as keys for easy access and grouping
-	const groups = {};
-
-	facilities.forEach((facility) => {
-		// If the facility type is not yet in the groups object, initialize it
-		if (!(facility.facilityTypeId in groups)) {
-			groups[facility.facilityTypeId] = {
-				facilityTypeId: facility.facilityTypeId,
-				facilityTypeName: facility.facilityTypeName,
-				totalCount: 0,
-				free: 0,
-				freeCodes: [], // the array stores the codes of the free facilities, to be shown as selectable badges
-			};
-		}
-
-		// Select the current group based on the facility type ID
-		const currentGroup = groups[facility.facilityTypeId];
-
-		// Perform the necessary calculations and updates for the current group
-		currentGroup.totalCount += 1;
-
-		// If the facility is free (isBooked === 0), update the free count and add the code to the freeCodes array
-		if (facility.isBooked === 0) {
-			currentGroup.free += 1;
-			currentGroup.freeCodes.push(facility.code);
-		}
-	});
-	return Object.entries(groups).map(([, group]) => group);
-}
-*/
-
-export default function groupFacilitiesByType(facilities) {
 	// Reduce iterates through elements, combining the current item with an accumulator value via callback `f`.
 	// reduce(callback, initialValue) where callback is a function that takes the accumulator and the current item, and initialValue is the starting value for the accumulator.
 
@@ -107,3 +74,16 @@ export default function groupFacilitiesByType(facilities) {
 	}, []); // [] is the initial value for the accumulator, starting with an empty array to hold the grouped facilities.
 }
 
+// Turns a snake_case name into Title Case: replaces underscores with spaces,
+// then capitalizes the first letter of every word.
+// Example: "table_tennis" -> "Table Tennis", "knee_pads" -> "Knee Pads".
+function formatName(name) {
+	// Splitting the string into 2 different substrings if _ is present
+	const words = name.split("_");
+	const capitalizedWords = words.map(
+		(word) => word.charAt(0).toUpperCase() + word.slice(1)
+	);
+	return capitalizedWords.join(" ");
+}
+
+export { groupFacilitiesByType, formatName };
