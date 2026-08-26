@@ -51,7 +51,7 @@ function TotpForm(props) {
 
 	return (
 		<Row className="justify-content-center mt-5">
-			<Col xs={12} sm={8} md={6} lg={4}>
+			<Col>
 				<h2>Second Factor Authentication</h2>
 				<h5>Please enter the code that you read on your device</h5>
 				<Form onSubmit={handleSubmit}>
@@ -125,9 +125,9 @@ function LoginForm(props) {
 
 	return (
 		<Row className="justify-content-center mt-5">
-			<Col xs={12} sm={8} md={6} lg={4}>
-				<Card className="p-4 shadow-sm">
-					<h1 className="pb-3 text-center">Login</h1>
+			<Col md={5}>
+				<Card className="p-3 shadow-sm">
+					<h1>Login</h1>
 					<Form onSubmit={handleSubmit}>
 						{errorMessage ? (
 							<Alert
@@ -143,7 +143,7 @@ function LoginForm(props) {
 							<Form.Control
 								type="email"
 								value={email}
-								placeholder="Example: john.doe@example.com"
+								placeholder="Example: user2@example.com"
 								onChange={(ev) => setEmail(ev.target.value)}
 							/>
 						</Form.Group>
