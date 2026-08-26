@@ -54,9 +54,6 @@ function Home({ loggedIn }) {
 						Browsing as <strong>guest</strong>: you can see availability but not
 						book.
 					</div>
-					<Button as={Link} to="/login" variant="outline-primary" size="sm">
-						Login
-					</Button>
 				</Alert>
 			)}
 
