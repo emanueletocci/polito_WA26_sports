@@ -1,4 +1,4 @@
-import { Navbar, Nav, Badge } from "react-bootstrap";
+import { Navbar, Nav, Badge, Button } from "react-bootstrap";
 import { Link } from "react-router";
 import { LoginButton, LogoutButton } from "./Auth.jsx";
 
@@ -18,6 +18,14 @@ function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 				>
 					Score: {user.score}
 				</Badge>
+				<Button
+					as={Link}
+					to="/reservations"
+					variant="outline-light"
+					className="me-3"
+				>
+					My reservations
+				</Button>
 				<LogoutButton logout={logout} />
 			</>
 		);

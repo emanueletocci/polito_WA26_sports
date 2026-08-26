@@ -70,6 +70,41 @@ const getEquipment = async (facilityTypeId) => {
 	);
 };
 
+/**
+ * Getting from the server side the list of reservations belonging to the logged-in user.
+ */
+const getReservations = async () => {
+	return getJson(
+		fetch(SERVER_URL + "reservations", { credentials: "include" }),
+	);
+};
+
+/**
+ * Sending a new reservation object to the server to book a facility (and optional equipment).
+ */
+const createReservation = async (reservation) => {
+	return getJson(
+		fetch(SERVER_URL + "reservations", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			credentials: "include",
+			body: JSON.stringify(reservation),
+		}),
+	);
+};
+
+/**
+ * Asking the server to cancel/delete the reservation identified by "reservationId".
+ */
+const deleteReservation = async (reservationId) => {
+	return getJson(
+		fetch(SERVER_URL + "reservations/" + reservationId, {
+			method: "DELETE",
+			credentials: "include",
+		}),
+	);
+};
+
 // -----------------------------------------------------------------------------
 // AUTH FUNCTIONS
 // -----------------------------------------------------------------------------
@@ -140,5 +175,8 @@ const API = {
 	getUserInfo,
 	logOut,
 	totpVerify,
+	getReservations,
+	createReservation,
+	deleteReservation,
 };
 export default API;

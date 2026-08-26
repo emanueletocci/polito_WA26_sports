@@ -1,4 +1,5 @@
-import { Container, Row, Col } from "react-bootstrap";
+import { Container, Row, Col, Alert, Button } from "react-bootstrap";
+import { Link } from "react-router";
 import { useEffect, useState } from "react";
 
 import API from "../API.js";
@@ -6,7 +7,7 @@ import { groupFacilitiesByType } from "../utils.js";
 import FacilityCard from "./FacilityCard.jsx";
 import EquipmentTable from "./EquipmentTable.jsx";
 
-function Home() {
+function Home({ loggedIn }) {
 	const [facilityGroups, setFacilityGroups] = useState([]);
 	const [equipmentList, setEquipmentList] = useState([]);
 
@@ -43,6 +44,21 @@ function Home() {
 					</p>
 				</Col>
 			</Row>
+
+			{!loggedIn && (
+				<Alert
+					variant="secondary"
+					className="d-flex justify-content-between align-items-center"
+				>
+					<div>
+						Browsing as <strong>guest</strong>: you can see availability but not
+						book.
+					</div>
+					<Button as={Link} to="/login" variant="outline-primary" size="sm">
+						Login
+					</Button>
+				</Alert>
+			)}
 
 			<h2 className="mb-3 pb-2 border-bottom">Facilities By Type</h2>
 			<Row xs={1} sm={2} lg={3} className="g-3 mb-5">

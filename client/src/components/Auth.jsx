@@ -165,7 +165,7 @@ function LoginForm(props) {
 // Button that logs the current user out when clicked
 function LogoutButton(props) {
 	return (
-		<Button variant="outline-light" onClick={props.logout}>
+		<Button variant="danger" onClick={props.logout}>
 			Logout
 		</Button>
 	);

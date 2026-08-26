@@ -8,6 +8,7 @@ import { Routes, Route, Navigate } from "react-router";
 import Layout from "./components/Layout.jsx";
 import Home from "./components/Home.jsx";
 import { LoginForm, TotpForm } from "./components/Auth.jsx";
+import Reservations from "./components/Reservations.jsx";
 import API from "./API.js";
 
 function App() {
@@ -61,6 +62,20 @@ function App() {
 		}
 	};
 
+	/**
+	 * Re-fetches the current user's info from the server (rehydrating), so that
+	 * client-side state (e.g. the score shown in the navbar) reflects any change
+	 * caused by an action performed elsewhere (e.g. deleting a reservation).
+	 */
+	const refreshUserInfo = async () => {
+		try {
+			const updatedUser = await API.getUserInfo();
+			setUser(updatedUser);
+		} catch (err) {
+			console.error(err);
+		}
+	};
+
 	return (
 		<Routes>
 			<Route
@@ -74,7 +89,17 @@ function App() {
 					/>
 				}
 			>
-				<Route index element={<Home />} />
+				<Route index element={<Home loggedIn={loggedIn} />} />
+				<Route
+					path="reservations"
+					element={
+						loggedIn ? (
+							<Reservations refreshUserInfo={refreshUserInfo} />
+						) : (
+							<Navigate to="/login" />
+						)
+					}
+				/>
 			</Route>
 			<Route
 				path="/login"
