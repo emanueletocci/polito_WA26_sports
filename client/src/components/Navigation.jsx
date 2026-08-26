@@ -1,6 +1,7 @@
-import { Navbar, Nav, Button } from "react-bootstrap";
+import { Navbar, Nav } from "react-bootstrap";
+import { LoginButton, LogoutButton } from "./Auth.jsx";
 
-function Navigation({ loggedIn, user, loggedInTotp }) {
+function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 	let authSection;
 	if (loggedIn) {
 		authSection = (
@@ -9,11 +10,11 @@ function Navigation({ loggedIn, user, loggedInTotp }) {
 					Logged in as: {user.name}
 					{loggedInTotp ? " (2FA)" : null}
 				</Navbar.Text>
-				<Button variant="light">Logout</Button>
+				<LogoutButton logout={logout} />
 			</>
 		);
 	} else {
-		authSection = <Button variant="light">Login</Button>;
+		authSection = <LoginButton />;
 	}
 
 	return (

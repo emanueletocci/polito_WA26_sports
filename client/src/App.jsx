@@ -3,47 +3,93 @@ import "bootstrap-icons/font/bootstrap-icons.css";
 import "./App.css";
 
 import { useState, useEffect } from "react";
+import { Routes, Route, Navigate } from "react-router";
 
 import Layout from "./components/Layout.jsx";
 import Home from "./components/Home.jsx";
+import { LoginForm, TotpForm } from "./components/Auth.jsx";
 import API from "./API.js";
-import { Routes, Route } from "react-router";
 
 function App() {
-	// This state keeps track if the user is currently logged-in.
 	const [loggedIn, setLoggedIn] = useState(false);
-
-	// This state keeps track if the user has used topt authentication.
 	const [loggedInTotp, setLoggedInTotp] = useState(false);
-
-	// This state contains the user's info.
 	const [user, setUser] = useState(null);
 
 	useEffect(() => {
 		const checkAuth = async () => {
 			try {
-				// here you have the user info, if already logged in
 				const user = await API.getUserInfo();
 				setLoggedIn(true);
 				setUser(user);
 				if (user.isTotpVerified) setLoggedInTotp(true);
 			} catch (err) {
-				// Empty on purpose: an error here just means no user is logged in, so there is nothing to handle
-				//handleError(err);
+				// Empty on purpose: no user logged in, nothing to handle
 			}
 		};
 		checkAuth();
-	}, []); // The useEffect callback is called only the first time the component is mounted.
+	}, []);
+
+	/**
+	 * This function handles the login process.
+	 * It requires a username and a password inside a "credentials" object.
+	 */
+	const handleLogin = async (credentials) => {
+		try {
+			const user = await API.logIn(credentials);
+			setUser(user);
+			setLoggedIn(true);
+		} catch (err) {
+			console.error(err);
+			// error is handled and visualized in the login form, do not manage error, throw it
+			throw err;
+		}
+	};
+
+	/**
+	 * This function handles the logout process.
+	 */
+	const handleLogout = async () => {
+		try {
+			await API.logOut();
+		} catch (err) {
+			// Cannot do anything more if logout fails: just avoid uncaught rejected promise
+			console.error(err);
+		} finally {
+			setLoggedIn(false);
+			setLoggedInTotp(false);
+			setUser(null);
+		}
+	};
 
 	return (
 		<Routes>
 			<Route
 				path="/"
 				element={
-					<Layout loggedIn={loggedIn} user={user} loggedInTotp={loggedInTotp} />
+					<Layout
+						loggedIn={loggedIn}
+						user={user}
+						loggedInTotp={loggedInTotp}
+						logout={handleLogout}
+					/>
 				}
 			>
 				<Route index element={<Home />} />
+				<Route
+					path="login"
+					element={
+						loggedIn ? <Navigate to="/" /> : <LoginForm login={handleLogin} />
+					}
+				/>
+				<Route
+					path="totp"
+					element={
+						<TotpForm
+							totpSuccessful={() => setLoggedInTotp(true)}
+							setLoggedIn={setLoggedIn}
+						/>
+					}
+				/>
 			</Route>
 		</Routes>
 	);

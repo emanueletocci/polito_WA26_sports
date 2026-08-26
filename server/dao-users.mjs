@@ -47,7 +47,6 @@ const getUser = (email, password) => {
 					totpSecret: row.totp_secret,
 					lastTotpStep: row.last_totp_step,
 				};
-				console.log('DEBUG row completa:', row);
 
 				// Check the hashes with an async call, this operation may be CPU-intensive (and we don't want to block the server)
 				crypto.scrypt(
