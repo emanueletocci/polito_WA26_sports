@@ -98,12 +98,16 @@ const setFacilityBooked = (code, booked) => {
 // EQUIPMENT
 // ============================================================
 
-// Returns, for each equipment type, name and available quantity.
-// Used by the public home page (no login required).
+// Returns, for each equipment type, name, available quantity, and the name of the
+// facility type it belongs to. Used by the public home page (no login required).
 const getEquipment = () => {
 	return new Promise((resolve, reject) => {
-		const sql =
-			"SELECT id, name, total_quantity AS totalQuantity, available_quantity AS availableQuantity FROM equipment";
+		const sql = `
+      SELECT e.id, e.name, e.total_quantity AS totalQuantity, e.available_quantity AS availableQuantity,
+             ft.name AS facilityTypeName
+      FROM equipment e
+      JOIN facility_types ft ON e.facility_type_id = ft.id
+    `;
 		db.all(sql, [], (err, rows) => {
 			if (err) reject(err);
 			else resolve(rows);
