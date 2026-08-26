@@ -16,6 +16,15 @@ function FacilityCard({ group }) {
 						{group.free}/{group.totalCount} free
 					</Badge>
 				</Stack>
+				
+				{/* Showing the available facility codes */}
+				<Stack direction="horizontal" gap={2} className="flex-wrap">
+					{group.freeCodes.map((code) => (
+						<Badge key={code} bg="primary">
+							{code}
+						</Badge>
+					))}
+				</Stack>
 			</Card.Body>
 		</Card>
 	);
