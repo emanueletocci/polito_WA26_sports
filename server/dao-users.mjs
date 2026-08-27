@@ -76,24 +76,22 @@ const getUser = (email, password) => {
 	});
 };
 
-// TODO: testare
-// This function updates the lastTotpStep for the user in the database.
 const updateLastTotpStep = (userId, lastTotpStep) => {
 	return new Promise((resolve, reject) => {
 		const sql = "UPDATE users SET last_totp_step = ? WHERE id = ?";
 		db.run(sql, [lastTotpStep, userId], function (err) {
 			if (err) {
 				reject(err);
-			}
-			if (this.changes !== 1) {
-				resolve({ error: "User not found." });
 			} else {
-				resolve(this.changes);
+				if (this.changes !== 1) {
+					resolve({ error: "User not found." });
+				} else {
+					resolve(this.changes);
+				}
 			}
 		});
 	});
 };
-
 // Decreases the user's score by 1 (called on "delete reservation").
 const decrementScore = (userId) => {
 	return new Promise((resolve, reject) => {

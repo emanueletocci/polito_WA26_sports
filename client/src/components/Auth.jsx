@@ -17,6 +17,7 @@ function TotpForm(props) {
 			.then(() => {
 				setErrorMessage("");
 				props.totpSuccessful();
+				props.refreshUserInfo();
 				navigate("/");
 			})
 			.catch((err) => {

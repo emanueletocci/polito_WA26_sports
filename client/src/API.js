@@ -52,6 +52,12 @@ const getFacilities = async (status) => {
 	);
 };
 
+const getFacilityTypes = async () => {
+	return getJson(
+		fetch(SERVER_URL + "facility-types", { credentials: "include" }),
+	);
+};
+
 /**
  * Getting from the server side the list of equipment.
  * Optional "facilityTypeId" filter: returns only the equipment rules (with minQuantity)
@@ -170,6 +176,7 @@ const logOut = async () => {
 
 const API = {
 	getFacilities,
+	getFacilityTypes,
 	getEquipment,
 	logIn,
 	getUserInfo,

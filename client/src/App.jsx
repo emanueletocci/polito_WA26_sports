@@ -9,6 +9,8 @@ import Layout from "./components/Layout.jsx";
 import Home from "./components/Home.jsx";
 import { LoginForm, TotpForm } from "./components/Auth.jsx";
 import Reservations from "./components/Reservations.jsx";
+import Book from "./components/Book.jsx";
+
 import API from "./API.js";
 
 function App() {
@@ -100,6 +102,10 @@ function App() {
 						)
 					}
 				/>
+				<Route
+					path="book"
+					element={loggedIn ? <Book /> : <Navigate to="/login" />}
+				/>
 			</Route>
 			<Route
 				path="/login"
@@ -111,6 +117,7 @@ function App() {
 						loggedInTotp={loggedInTotp}
 						setLoggedInTotp={setLoggedInTotp}
 						setLoggedIn={setLoggedIn}
+						refreshUserInfo={refreshUserInfo}
 					/>
 				}
 			/>
@@ -130,6 +137,7 @@ function LoginWithTotp(props) {
 					<TotpForm
 						totpSuccessful={() => props.setLoggedInTotp(true)}
 						setLoggedIn={props.setLoggedIn}
+						refreshUserInfo={props.refreshUserInfo}
 					/>
 				);
 			}

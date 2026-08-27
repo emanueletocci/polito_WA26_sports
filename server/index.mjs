@@ -160,6 +160,12 @@ app.post("/api/login-totp", isLoggedIn, async (req, res) => {
 		return res.status(400).json({ error: "Cannot authenticate with TOTP" });
 	}
 	const success = verifyTotpToken(req.user, req.body.code);
+	console.log(
+		"DEBUG: about to save lastTotpStep =",
+		req.user.lastTotpStep,
+		"for user",
+		req.user.id,
+	);
 	if (success) {
 		req.session.method = "totp";
 		try {
@@ -232,6 +238,19 @@ app.get("/api/equipment", async (req, res) => {
 		}
 
 		res.json(equipment);
+	} catch (err) {
+		console.error(err);
+		res.status(500).json({ error: "Database error" });
+	}
+});
+
+// GET /api/facility-types
+// Returns the list of all facility types (id, name) - used to populate the
+// "type" dropdown in the reservation form.
+app.get("/api/facility-types", async (req, res) => {
+	try {
+		const types = await facilityDao.getAllFacilityTypes();
+		res.json(types);
 	} catch (err) {
 		console.error(err);
 		res.status(500).json({ error: "Database error" });

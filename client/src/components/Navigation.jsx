@@ -26,6 +26,9 @@ function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 				>
 					My reservations
 				</Button>
+				<Button as={Link} to="/book" variant="outline-light" className="me-3">
+					Book
+				</Button>
 				<LogoutButton logout={logout} />
 			</>
 		);
