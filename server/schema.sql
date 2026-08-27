@@ -72,11 +72,9 @@ INSERT INTO "facility_types" ("id", "name") VALUES
     (5, 'table_tennis'),
     (6, 'cycling');
 
--- Facilities: the final state (is_booked) is inserted directly, not simulated with UPDATE.
--- T1, B1, V1, P1 end up occupied by the seed ACTIVE reservations below.
--- T2, S1, CY1 are referenced by the seed CANCELLED reservations below: they are
--- correctly free (is_booked = 0) here, since a cancelled reservation always
--- restores the facility to "free".
+-- Facilities: 
+-- T1, B1, V1, P1 are occupied.
+-- T2, S1, CY1 were canceled 
 INSERT INTO "facilities" ("code", "facility_type_id", "is_booked") VALUES
     ('T1', 1, 1), ('T2', 1, 0), ('T3', 1, 0);
 
@@ -95,9 +93,7 @@ INSERT INTO "facilities" ("code", "facility_type_id", "is_booked") VALUES
 INSERT INTO "facilities" ("code", "facility_type_id", "is_booked") VALUES
     ('CY1', 6, 0), ('CY2', 6, 0);
 
--- Equipment: available_quantity already reflects the final state (total_quantity minus what
--- is rented by the ACTIVE seed reservations only). Cancelled reservations never affect
--- available_quantity, since their equipment was already given back upon cancellation.
+-- Equipment: 
 -- Tennis: racket(2 min), balls(3 min), towel(optional) - 2 rackets and 3 balls rented by reservation #1 (active)
 INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "available_quantity", "min_quantity") VALUES
     (1, 1, 'tennis_racket', 8, 6, 2),
