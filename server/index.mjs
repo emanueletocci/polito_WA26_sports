@@ -380,6 +380,7 @@ app.post(
 			const rules =
 				await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
 			// Validate the requested equipment against the rules and the user's score
+			// (this is a pure, read-only check: it does NOT write to the DB yet).
 			const validation = validateEquipmentRequest(
 				rules,
 				equipment,
@@ -388,6 +389,18 @@ app.post(
 
 			if (validation.error) {
 				return res.status(422).json({ error: validation.error });
+			}
+
+			// Only NOW, right before any DB write happens, attempt to actually book
+			// the facility - atomically. This is the real, race-condition-safe
+			// check: two concurrent requests targeting the same facility can never
+			// both succeed here, unlike the earlier resolveFacility lookup, which
+			// only picks a CANDIDATE and could be stale by the time we reach this
+			// point.
+			const bookResult =
+				await facilityDao.bookFacilityIfFree(chosenFacilityCode);
+			if (bookResult && bookResult.error) {
+				return res.status(422).json(bookResult);
 			}
 
 			// Everything is valid: store the reservation...
@@ -408,8 +421,6 @@ app.post(
 					line.quantity,
 				);
 			}
-			// mark the facility as booked.
-			await facilityDao.setFacilityBooked(chosenFacilityCode, true);
 
 			// Return the newly created reservation together with its equipment.
 			const created = await reservationDao.getReservationById(reservationId);
