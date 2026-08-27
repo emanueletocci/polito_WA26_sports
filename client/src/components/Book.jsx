@@ -1,5 +1,16 @@
 import { useState, useEffect } from "react";
-import { Container, Form, Card, Button, Alert, Badge } from "react-bootstrap";
+import {
+	Container,
+	Form,
+	Card,
+	Button,
+	Alert,
+	Badge,
+	ButtonGroup,
+	ToggleButton,
+	Row,
+	Col,
+} from "react-bootstrap";
 import { useNavigate } from "react-router";
 import API from "../API.js";
 import { formatName } from "../utils.js";
@@ -23,7 +34,7 @@ import { formatName } from "../utils.js";
  * - formDisabled: boolean, true while the form is submitting (disables all inputs)
  *
  * OUTPUT (return value):
- * - a <Card> containing the "1. Facility" section of the form
+ * - JSX: a <Card> containing the "1. Facility" section of the form
  *   (type dropdown, manual/automatic radio buttons, and the list of free facilities)
  */
 function renderFacilitySelection({
@@ -38,6 +49,8 @@ function renderFacilitySelection({
 	formDisabled,
 }) {
 	// ---- Step 1: decide what to show for the "manual selection" list ----
+	// Instead of a ternary inside the JSX, we compute the content here,
+	// as a plain variable, using a standard if/else block.
 	let freeFacilitiesContent;
 	if (freeFacilities.length === 0) {
 		freeFacilitiesContent = (
@@ -82,28 +95,32 @@ function renderFacilitySelection({
 	if (selectedTypeId) {
 		modeAndFacilityBlock = (
 			<>
-				<Form.Group className="mb-3">
-					<Form.Check
-						inline
-						type="radio"
-						name="mode"
+				<ButtonGroup className="mb-3">
+					<ToggleButton
 						id="mode-manual"
-						label="Manual selection"
+						type="radio"
+						variant="outline-primary"
+						name="mode"
+						value="manual"
 						checked={mode === "manual"}
 						onChange={() => setMode("manual")}
 						disabled={formDisabled}
-					/>
-					<Form.Check
-						inline
-						type="radio"
-						name="mode"
+					>
+						Manual selection
+					</ToggleButton>
+					<ToggleButton
 						id="mode-automatic"
-						label="Automatic assignment"
+						type="radio"
+						variant="outline-primary"
+						name="mode"
+						value="automatic"
 						checked={mode === "automatic"}
 						onChange={() => setMode("automatic")}
 						disabled={formDisabled}
-					/>
-				</Form.Group>
+					>
+						Automatic assignment
+					</ToggleButton>
+				</ButtonGroup>
 
 				{manualFacilityBlock}
 			</>
@@ -112,12 +129,23 @@ function renderFacilitySelection({
 
 	return (
 		<Card className="p-3 mb-4">
-			<h5>1. Facility</h5>
+			<h5>Facility</h5>
+			<p className="text-muted small mb-3">
+				Choose a sport type, then pick a specific facility or let the system
+				assign one automatically.
+			</p>
 
 			<Form.Group className="mb-3">
 				<Form.Label>Type</Form.Label>
 				{/* dropdown menu */}
 
+				{/*
+					- ev is a (synthetic) event object
+					- ev.target represents the DOM element that triggered/generated the event
+					  (in this case, the <select> element the user interacted with)
+					- ev.target.value represents the current value of that element
+					  (in this case, the value of the <option> the user just selected)
+				*/}
 				<Form.Select
 					value={selectedTypeId}
 					onChange={(ev) => setSelectedTypeId(ev.target.value)}
@@ -147,7 +175,7 @@ function renderFacilitySelection({
  * - formDisabled: boolean, true while the form is submitting (disables the +/- buttons)
  *
  * OUTPUT (return value):
- * - a single row showing the equipment name, its min/available info,
+ * - JSX: a single row showing the equipment name, its min/available info,
  *   and the +/- buttons to change its selected quantity
  */
 function renderEquipmentRow(
@@ -160,19 +188,23 @@ function renderEquipmentRow(
 	// Only mandatory equipment (minQuantity > 0) shows this badge.
 	let minBadge = null;
 	if (eq.minQuantity > 0) {
-		minBadge = <Badge bg="secondary">min {eq.minQuantity}</Badge>;
+		minBadge = (
+			<Badge bg="warning" className="me-3">
+				min: {eq.minQuantity}
+			</Badge>
+		);
 	}
 
 	return (
-		<div
-			key={eq.id}
-			className="d-flex align-items-center justify-content-between mb-2"
-		>
-			<div>
-				{formatName(eq.name)} {minBadge}{" "}
-				<span className="text-muted small">avail. {eq.availableQuantity}</span>
-			</div>
-			<div className="d-flex align-items-center">
+		<Row key={eq.id} className="justify-content-between mb-2">
+			{/* Left side: just the equipment name (+ the "min X" badge, if mandatory) */}
+			<Col>{formatName(eq.name)}</Col>
+
+			{/* Right side: availability badge + the +/- quantity controls, grouped together */}
+			<Col xs="auto" className="d-flex align-items-center">
+				{minBadge}
+				<Badge className="me-3">available: {eq.availableQuantity}</Badge>
+
 				<Button
 					size="sm"
 					variant="outline-secondary"
@@ -194,8 +226,8 @@ function renderEquipmentRow(
 				>
 					+
 				</Button>
-			</div>
-		</div>
+			</Col>
+		</Row>
 	);
 }
 
@@ -209,7 +241,7 @@ function renderEquipmentRow(
  * - formDisabled: boolean, true while the form is submitting
  *
  * OUTPUT (return value):
- * - a <Card> with two sections, "Mandatory" and "Optional" equipment rows
+ * - JSX: a <Card> with two sections, "Mandatory" and "Optional" equipment rows
  */
 function renderEquipmentSelection({
 	equipmentRules,
@@ -243,7 +275,12 @@ function renderEquipmentSelection({
 
 	return (
 		<Card className="p-3 mb-4">
-			<h2 className="h5">2. Equipment</h2>
+			<h2 className="h5">Equipment</h2>
+			<p className="text-muted small mb-3">
+				Use the + and - buttons to adjust the quantity of each item.
+			</p>
+
+			<hr />
 
 			<p className="text-muted small mb-2">
 				Mandatory — the minimum quantity is always included
@@ -269,6 +306,7 @@ function renderEquipmentSelection({
 function buildInitialQuantities(rules) {
 	const quantities = {};
 	rules.forEach((eq) => {
+		// Standard if/else instead of a ternary, to decide the starting quantity.
 		if (eq.minQuantity > 0) {
 			quantities[eq.id] = eq.minQuantity;
 		} else {
@@ -284,6 +322,8 @@ function buildInitialQuantities(rules) {
 
 /**
  * Book
+ *
+ * INPUT: none (this is a page-level component, it takes no props)
  *
  * OUTPUT (return value):
  * - JSX: the full "New reservation" page, including the facility card,
@@ -335,7 +375,8 @@ function Book() {
 	}, []);
 
 	// ---- Effect 2: react to a change of the selected facility type ----
-	// Runs again every time "selectedTypeId" changes. All the actions below are consequences of the
+	// Runs again every time "selectedTypeId" changes (including the very first time
+	// it goes from "" to a real id). All the actions below are consequences of the
 	// SAME event ("the user picked a different facility type"), so they live together
 	// in a single effect instead of being split into several effects with the
 	// same dependency.
@@ -396,7 +437,10 @@ function Book() {
 			// next = the new proposed quantity (current + delta)
 			let next = current + delta;
 
+			// don't go below the minimum required quantity
 			if (next < eq.minQuantity) next = eq.minQuantity;
+
+			// don't go above the quantity available
 			if (next > eq.availableQuantity) next = eq.availableQuantity;
 
 			// create a copy of the whole object, so "prev" itself is never modified
@@ -516,6 +560,15 @@ function Book() {
 					disabled={!selectedTypeId || formDisabled}
 				>
 					{submitLabel}
+				</Button>
+				<Button
+					variant="secondary"
+					type="button"
+					onClick={() => navigate("/reservations")}
+					disabled={formDisabled}
+					className="ms-2"
+				>
+					Cancel
 				</Button>
 			</Form>
 		</Container>

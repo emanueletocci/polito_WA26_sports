@@ -5,12 +5,15 @@ import API from "../API.js";
 import { formatName } from "../utils.js";
 
 // -----------------------------------------------------------------------------
-// REQUIREMENTS RECAP
+// REQUIREMENTS RECAP (see WA26_exam3_Sport.pdf + forum clarification):
 // - Mandatory equipment CANNOT be changed here: it must stay exactly as it
-//   was when the reservation was created... It is shown read-only.
+//   was when the reservation was created ("existing reservations must be
+//   kept as they are"). It is shown read-only.
 // - Optional equipment CAN be freely increased/decreased...
 // - ...UNLESS the user's score is negative: in that case, optional equipment
 //   can only be DECREASED (removed), never increased/added
+//   (forum: Enrico Masala, 25/08/26 - "still be able to modify it but only
+//   for removing extra equipment, not for adding anything").
 // -----------------------------------------------------------------------------
 
 /**
@@ -22,13 +25,15 @@ import { formatName } from "../utils.js";
  *   (fixed, cannot be changed by the user)
  *
  * OUTPUT (return value):
- * - JSX: a read-only <tr> for a mandatory equipment item
+ * - JSX: a read-only <tr> for a mandatory equipment item, with its own
+ *   "Type" column instead of a badge stuck next to the name.
  */
 function renderMandatoryRow(eq, quantity) {
 	return (
 		<tr key={eq.id}>
+			<td>{formatName(eq.name)}</td>
 			<td>
-				{formatName(eq.name)} <Badge bg="secondary">mandatory, locked</Badge>
+				<Badge bg="secondary">Mandatory, locked</Badge>
 			</td>
 			<td>{quantity}</td>
 		</tr>
@@ -47,7 +52,8 @@ function renderMandatoryRow(eq, quantity) {
  * - formDisabled: boolean, true while the form is submitting
  *
  * OUTPUT (return value):
- * - JSX: a <tr> for an optional equipment item, with +/- controls
+ * - JSX: a <tr> for an optional equipment item, with its own "Type" column
+ *   and the +/- controls.
  */
 function renderOptionalRow(
 	eq,
@@ -59,6 +65,11 @@ function renderOptionalRow(
 	return (
 		<tr key={eq.id}>
 			<td>{formatName(eq.name)}</td>
+			<td>
+				<Badge bg="light" text="dark">
+					Optional
+				</Badge>
+			</td>
 			<td>
 				<Button
 					size="sm"
@@ -300,6 +311,7 @@ function ReservationEdit({ user }) {
 				<thead>
 					<tr>
 						<th>Equipment</th>
+						<th>Type</th>
 						<th>Quantity</th>
 					</tr>
 				</thead>
