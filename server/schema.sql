@@ -73,7 +73,10 @@ INSERT INTO "facility_types" ("id", "name") VALUES
     (6, 'cycling');
 
 -- Facilities: the final state (is_booked) is inserted directly, not simulated with UPDATE.
--- T1, B1, V1, P1 end up occupied by the seed reservations below.
+-- T1, B1, V1, P1 end up occupied by the seed ACTIVE reservations below.
+-- T2, S1, CY1 are referenced by the seed CANCELLED reservations below: they are
+-- correctly free (is_booked = 0) here, since a cancelled reservation always
+-- restores the facility to "free".
 INSERT INTO "facilities" ("code", "facility_type_id", "is_booked") VALUES
     ('T1', 1, 1), ('T2', 1, 0), ('T3', 1, 0);
 
@@ -93,35 +96,37 @@ INSERT INTO "facilities" ("code", "facility_type_id", "is_booked") VALUES
     ('CY1', 6, 0), ('CY2', 6, 0);
 
 -- Equipment: available_quantity already reflects the final state (total_quantity minus what
--- was rented in the seed reservations below), it is no longer decremented with UPDATE.
--- Tennis: racket(2 min), balls(3 min), towel(optional) - 2 rackets and 3 balls rented by reservation #1
+-- is rented by the ACTIVE seed reservations only). Cancelled reservations never affect
+-- available_quantity, since their equipment was already given back upon cancellation.
+-- Tennis: racket(2 min), balls(3 min), towel(optional) - 2 rackets and 3 balls rented by reservation #1 (active)
 INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "available_quantity", "min_quantity") VALUES
     (1, 1, 'tennis_racket', 8, 6, 2),
     (2, 1, 'tennis_ball',   7, 4, 3),
     (3, 1, 'towel',         4, 4, 0);
 
--- Basketball: ball(1 min), cones(optional) - 1 ball rented by reservation #2
+-- Basketball: ball(1 min), cones(optional) - 1 ball rented by reservation #2 (active)
 INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "available_quantity", "min_quantity") VALUES
     (4, 2, 'basketball', 2, 1, 1),
     (5, 2, 'cone',       4, 4, 0);
 
--- Volleyball: ball(1 min), knee pads(optional) - 1 ball rented by reservation #3
+-- Volleyball: ball(1 min), knee pads(optional) - 1 ball rented by reservation #3 (active)
 INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "available_quantity", "min_quantity") VALUES
     (6, 3, 'volleyball', 2, 1, 1),
     (7, 3, 'knee_pads',  10, 10, 0);
 
--- Soccer: ball(1 min), shoes(10 min), goalkeeper gloves(optional) - no seed reservation
+-- Soccer: ball(1 min), shoes(10 min), goalkeeper gloves(optional) - no ACTIVE seed reservation
+-- (reservation #5 below rented this type, but it is cancelled)
 INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "available_quantity", "min_quantity") VALUES
     (8, 4, 'soccer_ball',        2, 2, 1),
     (9, 4, 'soccer_shoes',       12, 12, 10),
     (10, 4, 'goalkeeper_gloves', 2, 2, 0);
 
--- Table tennis: rackets(2 min), balls(1 min) - 2 rackets and 1 ball rented by reservation #4
+-- Table tennis: rackets(2 min), balls(1 min) - 2 rackets and 1 ball rented by reservation #4 (active)
 INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "available_quantity", "min_quantity") VALUES
     (11, 5, 'table_tennis_racket', 8, 6, 2),
     (12, 5, 'table_tennis_ball',   4, 3, 1);
 
--- Cycling: bicycle(1 min), helmet(1 min), repair kit(optional) - no seed reservation
+-- Cycling: bicycle(1 min), helmet(1 min), repair kit(optional) - no ACTIVE seed reservation
 INSERT INTO "equipment" ("id", "facility_type_id", "name", "total_quantity", "available_quantity", "min_quantity") VALUES
     (13, 6, 'bicycle',    4, 4, 1),
     (14, 6, 'helmet',     4, 4, 1),
@@ -143,24 +148,30 @@ INSERT INTO "users" ("id", "name", "surname", "email", "password_hash", "salt", 
         'e2c6d719887040f219a67b96fe8ec16639e3c380fca5628b92508f1cc9286850',
         'd815dc36782d6423458f523d641da109', 'LXBSMDTMSP2I5XFXIYRGFVWSFI', NULL);
 
--- Negative score required by the spec for at least 2 users (simulates previous cancellations)
 UPDATE "users" SET "score" = -1 WHERE "id" = 3;
 UPDATE "users" SET "score" = -2 WHERE "id" = 4;
 
--- Reservations: 4 active reservations, with a fixed static date (no calculation relative to "now")
-INSERT INTO "reservations" ("id", "user_id", "facility_code", "created_at", "status") VALUES
-    (1, 2, 'T1', '2026-08-21 10:00:00', 'active'),
-    (2, 3, 'B1', '2026-08-21 11:00:00', 'active'),
-    (3, 4, 'V1', '2026-08-21 12:00:00', 'active'),
-    (4, 4, 'P1', '2026-08-21 13:00:00', 'active');
+INSERT INTO "reservations" ("id", "user_id", "facility_code", "created_at", "status", "released_at") VALUES
+    (1, 2, 'T1', '2026-08-21T10:00:00.000Z', 'active',    NULL),
+    (2, 3, 'B1', '2026-08-21T11:00:00.000Z', 'active',    NULL),
+    (3, 4, 'V1', '2026-08-21T12:00:00.000Z', 'active',    NULL),
+    (4, 4, 'P1', '2026-08-21T13:00:00.000Z', 'active',    NULL),
+    (5, 3, 'S1', '2026-08-19T09:00:00.000Z', 'cancelled', '2026-08-19T09:45:00.000Z'),
+    (6, 4, 'T2', '2026-08-18T14:00:00.000Z', 'cancelled', '2026-08-18T14:30:00.000Z'),
+    (7, 4, 'CY1','2026-08-19T16:00:00.000Z', 'cancelled', '2026-08-19T16:20:00.000Z');
 
--- Rents: equipment rented for each reservation (only the mandatory minimum)
 INSERT INTO "rents" ("reservation_id", "equipment_id", "quantity") VALUES
-    (1, 1, 2),   -- reservation #1: 2 tennis racket (min)
-    (1, 2, 3),   -- reservation #1: 3 tennis ball (min)
-    (2, 4, 1),   -- reservation #2: 1 basketball (min)
-    (3, 6, 1),   -- reservation #3: 1 volleyball (min)
-    (4, 11, 2),  -- reservation #4: 2 table_tennis_racket (min)
-    (4, 12, 1);  -- reservation #4: 1 table_tennis_ball (min)
+    (1, 1, 2),   -- reservation #1 (active): 2 tennis_racket (min)
+    (1, 2, 3),   -- reservation #1 (active): 3 tennis_ball (min)
+    (2, 4, 1),   -- reservation #2 (active): 1 basketball (min)
+    (3, 6, 1),   -- reservation #3 (active): 1 volleyball (min)
+    (4, 11, 2),  -- reservation #4 (active): 2 table_tennis_racket (min)
+    (4, 12, 1),  -- reservation #4 (active): 1 table_tennis_ball (min)
+    (5, 8, 1),   -- reservation #5 (cancelled): 1 soccer_ball (min)
+    (5, 9, 10),  -- reservation #5 (cancelled): 10 soccer_shoes (min)
+    (6, 1, 2),   -- reservation #6 (cancelled): 2 tennis_racket (min)
+    (6, 2, 3),   -- reservation #6 (cancelled): 3 tennis_ball (min)
+    (7, 13, 1),  -- reservation #7 (cancelled): 1 bicycle (min)
+    (7, 14, 1);  -- reservation #7 (cancelled): 1 helmet (min)
 
 COMMIT;
