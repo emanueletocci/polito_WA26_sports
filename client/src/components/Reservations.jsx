@@ -4,8 +4,19 @@ import API from "../API.js";
 import { formatName } from "../utils.js";
 import { Link } from "react-router";
 
-// Renders one reservation as a table row: facility name/code, equipment badges,
-// status, and the modify/delete actions.
+/**
+ * Renders one reservation as a table row: facility name/code, equipment badges,
+ * status, and the modify/delete actions.
+ *
+ * INPUT:
+ * - r: a single reservation object { id, facilityTypeName, facilityCode, equipment }
+ *   where equipment is an array of { equipmentId, name, quantity }
+ * - onDelete: function(reservationId), called when the "Delete" button
+ *   for this row is clicked
+ *
+ * OUTPUT (return value):
+ * - a single <tr> representing this reservation
+ */
 function renderReservationRow(r, onDelete) {
 	return (
 		<tr key={r.id}>
@@ -16,6 +27,7 @@ function renderReservationRow(r, onDelete) {
 				</Badge>
 			</td>
 			<td>
+				{/* One Badge per equipment item booked with this reservation */}
 				{r.equipment.map((eq) => (
 					<Badge
 						key={eq.equipmentId}
@@ -32,6 +44,7 @@ function renderReservationRow(r, onDelete) {
 				<Badge bg="success">Active</Badge>
 			</td>
 			<td>
+				{/* "Edit" navigates to the edit page for this specific reservation */}
 				<Button
 					as={Link}
 					to={"/reservations/" + r.id + "/edit"}
@@ -39,8 +52,9 @@ function renderReservationRow(r, onDelete) {
 					size="sm"
 					className="me-2"
 				>
-					Modify
+					Edit
 				</Button>
+				{/* "Delete" triggers onDelete with this reservation's id */}
 				<Button variant="danger" size="sm" onClick={() => onDelete(r.id)}>
 					Delete
 				</Button>
@@ -49,10 +63,24 @@ function renderReservationRow(r, onDelete) {
 	);
 }
 
+/**
+ * Reservations
+ *
+ * INPUT (props, passed as a single object):
+ * - refreshUserInfo: function, called to re-fetch/update the current user info
+ *   (needed because deleting a reservation changes the user's score server-side)
+ *
+ * OUTPUT (return value):
+ * - JSX: the "My reservations" page, showing either a placeholder message
+ *   (no reservations) or a table with one row per reservation
+ */
 function Reservations({ refreshUserInfo }) {
+	// reservations: the list of the current user's reservations
 	const [reservations, setReservations] = useState([]);
+	// errorMsg: text shown in the red Alert box; empty string = no error
 	const [errorMsg, setErrorMsg] = useState("");
 
+	// Fetch the reservations once, when the page mounts.
 	useEffect(() => {
 		API.getReservations()
 			.then((data) => setReservations(data))
@@ -62,6 +90,16 @@ function Reservations({ refreshUserInfo }) {
 			});
 	}, []);
 
+	/**
+	 * handleDelete
+	 *
+	 * INPUT (params, positional):
+	 * - reservationId: the id of the reservation to delete
+	 *
+	 * OUTPUT (return value):
+	 * - none (undefined). Its job is a SIDE EFFECT: it calls the API to delete
+	 *   the reservation, then updates local state and refreshes the user info.
+	 */
 	const handleDelete = (reservationId) => {
 		API.deleteReservation(reservationId)
 			.then(() => {
@@ -80,12 +118,22 @@ function Reservations({ refreshUserInfo }) {
 		<Container fluid className="py-4">
 			<h1 className="mb-4">My reservations</h1>
 
+			{/*
+				This is NOT a ternary: {errorMsg && (...)} is a logical AND
+				short-circuit. If errorMsg is a non-empty string (truthy), React
+				renders the Alert. If errorMsg is "" (falsy), nothing is rendered.
+			*/}
 			{errorMsg && (
 				<Alert variant="danger" dismissible onClose={() => setErrorMsg("")}>
 					{errorMsg}
 				</Alert>
 			)}
 
+			{/*
+				Ternary deciding what to show instead of the table:
+				- if there are no reservations, show a placeholder message
+				- otherwise, show the full table with one row per reservation
+			*/}
 			{reservations.length === 0 ? (
 				<p className="text-muted">You have no active reservations.</p>
 			) : (
@@ -100,6 +148,7 @@ function Reservations({ refreshUserInfo }) {
 						</tr>
 					</thead>
 					<tbody>
+						{/* One row per reservation, built via renderReservationRow */}
 						{reservations.map((r) => renderReservationRow(r, handleDelete))}
 					</tbody>
 				</Table>

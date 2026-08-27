@@ -2,17 +2,37 @@ import { Navbar, Nav, Badge, Button } from "react-bootstrap";
 import { Link } from "react-router";
 import { LoginButton, LogoutButton } from "./Auth.jsx";
 
+/**
+ * Navigation
+ *
+ * INPUT (props, passed as a single object):
+ * - loggedIn: boolean, whether the current user is authenticated
+ * - user: object, info about the currently logged-in user
+ * - loggedInTotp: boolean, whether the user has also completed the 2FA (TOTP) step
+ * - logout: function, called to log the current user out;
+ *   passed down to LogoutButton
+ *
+ * OUTPUT (return value):
+ * - JSX: the top navigation bar, showing either a Login button (guest)
+ *   or the user's name/score/reservation links/Logout button (logged in)
+ */
 function Navigation({ loggedIn, user, loggedInTotp, logout }) {
+	// authSection: the right-hand side content of the navbar.
+	// Its content depends entirely on whether the user is logged in or not,
+	// so it's computed once here (with a standard if/else), then just
+	// inserted into the JSX below via {authSection}.
 	let authSection;
 	if (loggedIn) {
 		authSection = (
 			<>
 				<Navbar.Text className="text-white me-3 fw-bold">
 					{`${user.name} ${user.surname}`}
+					{/* Show "(2FA)" next to the name only if the user completed the TOTP step */}
 					{loggedInTotp ? " (2FA)" : null}
 				</Navbar.Text>
 				<Badge
 					bg="light"
+					// Badge text color: red if the score is negative, otherwise dark
 					text={user.score < 0 ? "danger" : "dark"}
 					className="me-3 text-nowrap fs-6"
 				>
@@ -33,6 +53,7 @@ function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 			</>
 		);
 	} else {
+		// Not logged in: only show the Login button
 		authSection = <LoginButton />;
 	}
 

@@ -1,11 +1,15 @@
 const SERVER_URL = "http://localhost:3001/api/";
 
-// -----------------------------------------------------------------------------
-// UTILITY FUNCTIONS
-// -----------------------------------------------------------------------------
-
 /**
  * A utility function for parsing the HTTP response.
+ *
+ * INPUT (params, positional):
+ * - httpResponsePromise: a Promise returned by fetch(...)
+ *
+ * OUTPUT (return value):
+ * - a new Promise that:
+ *   - resolves with the parsed JSON body, if the HTTP response was ok (2xx)
+ *   - rejects in every other case
  */
 function getJson(httpResponsePromise) {
 	// server API always return JSON, in case of error the format is the following { error: <message> }
@@ -35,6 +39,14 @@ function getJson(httpResponsePromise) {
  * Getting from the server side the list of facilities, each with its type and status (isBooked).
  * Optional "status" filter ("free" | "booked"); without it, returns ALL facilities -
  * needed by the public homepage to compute per-type counts (free/booked/total).
+ *
+ * INPUT:
+ * - status: optional string, either "free" or "booked". If omitted (undefined),
+ *   the server returns every facility regardless of status.
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the array of facility objects,
+ *   or rejects with { error: <message> }
  */
 const getFacilities = async (status) => {
 	// credentials: 'include' forces the browser to send the session cookie even though
@@ -52,6 +64,13 @@ const getFacilities = async (status) => {
 	);
 };
 
+/**
+ * Getting from the server side the list of all facility types.
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the array of facility type
+ *   objects, or rejects with { error: <message> }
+ */
 const getFacilityTypes = async () => {
 	return getJson(
 		fetch(SERVER_URL + "facility-types", { credentials: "include" }),
@@ -63,8 +82,16 @@ const getFacilityTypes = async () => {
  * Optional "facilityTypeId" filter: returns only the equipment rules (with minQuantity)
  * relevant to that facility type - used by the reservation form.
  * Without it, returns ALL equipment with availability - used by the public homepage.
- */
 
+ * INPUT (params, positional):
+ * - facilityTypeId: optional number, the id of a facility type. If provided
+ *   (including 0), the server returns only the equipment rules for that type.
+ *   If omitted (undefined), the server returns the full equipment list.
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the array of equipment objects,
+ *   or rejects with { error: <message> }
+ */
 const getEquipment = async (facilityTypeId) => {
 	return getJson(
 		// explicitly check if a facilityTypeId is specified, to manage the case of 0 (falsy) as a valid value.
@@ -78,6 +105,10 @@ const getEquipment = async (facilityTypeId) => {
 
 /**
  * Getting from the server side the list of reservations belonging to the logged-in user.
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the array of the current user's
+ *   reservation objects, or rejects with { error: <message> }
  */
 const getReservations = async () => {
 	return getJson(
@@ -87,6 +118,14 @@ const getReservations = async () => {
 
 /**
  * Sending a new reservation object to the server to book a facility (and optional equipment).
+ *
+ * INPUT (params, positional):
+ * - reservation: object describing the reservation to create, e.g.
+ *   { facilityTypeId, facilityCode?, equipment: [{ equipmentId, quantity }, ...] }
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the server's JSON response
+ *   (typically the created reservation), or rejects with { error: <message> }
  */
 const createReservation = async (reservation) => {
 	return getJson(
@@ -101,6 +140,13 @@ const createReservation = async (reservation) => {
 
 /**
  * Asking the server to cancel/delete the reservation identified by "reservationId".
+ *
+ * INPUT (params, positional):
+ * - reservationId: the id of the reservation to delete
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves once the reservation is deleted,
+ *   or rejects with { error: <message> }
  */
 const deleteReservation = async (reservationId) => {
 	return getJson(
@@ -118,6 +164,13 @@ const deleteReservation = async (reservationId) => {
 /**
  * This function wants the TOTP code
  * It executes the 2FA.
+ *
+ * INPUT (params, positional):
+ * - totpCode: string, the 6-digit code typed by the user
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves once the TOTP code is verified
+ *   (session becomes fully authenticated), or rejects with { error: <message> }
  */
 const totpVerify = async (totpCode) => {
 	return getJson(
@@ -135,6 +188,13 @@ const totpVerify = async (totpCode) => {
 /**
  * This function wants username and password inside a "credentials" object.
  * It executes the log-in.
+ *
+ * INPUT (params, positional):
+ * - credentials: object { email, password }
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the logged-in user's info,
+ *   or rejects with { error: <message> }
  */
 const logIn = async (credentials) => {
 	return getJson(
@@ -152,6 +212,11 @@ const logIn = async (credentials) => {
 /**
  * This function is used to verify if the user is still logged-in.
  * It returns a JSON object with the user info.
+ *
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the current user's info if a
+ *   valid session exists, or rejects with { error: <message> } otherwise
  */
 const getUserInfo = async () => {
 	return getJson(
@@ -164,6 +229,11 @@ const getUserInfo = async () => {
 
 /**
  * This function destroy the current user's session and execute the log-out.
+ *
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves once the session is destroyed,
+ *   or rejects with { error: <message> }
  */
 const logOut = async () => {
 	return getJson(

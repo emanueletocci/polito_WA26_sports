@@ -7,10 +7,26 @@ import { groupFacilitiesByType } from "../utils.js";
 import FacilityCard from "./FacilityCard.jsx";
 import EquipmentTable from "./EquipmentTable.jsx";
 
+/**
+ * Home
+ *
+ * INPUT (props, passed as a single object):
+ * - loggedIn: boolean, whether the current user is authenticated.
+ *   Used only to decide whether to show the "browsing as guest" alert.
+ *
+ * OUTPUT (return value):
+ * - JSX: the home page, showing facilities grouped by type (as a grid of
+ *   FacilityCard components) and the full equipment availability table
+ */
 function Home({ loggedIn }) {
+	// facilityGroups: facilities grouped by type, e.g.
+	// [{ facilityTypeId, facilityTypeName, free, totalCount, freeCodes }, ...]
 	const [facilityGroups, setFacilityGroups] = useState([]);
+	// equipmentList: the full list of equipment items, e.g.
+	// [{ id, name, facilityTypeName, availableQuantity, totalQuantity }, ...]
 	const [equipmentList, setEquipmentList] = useState([]);
 
+	// ---- fetch all facilities, then group them by type AND equipent list ----
 	useEffect(() => {
 		API.getFacilities()
 			.then((facilities) => {
@@ -22,9 +38,7 @@ function Home({ loggedIn }) {
 			.catch((err) => {
 				console.error("Error fetching facilities:", err);
 			});
-	}, []); // The empty array means that the call is executed only at the first mount
 
-	useEffect(() => {
 		API.getEquipment()
 			.then((eq) => {
 				setEquipmentList(eq);
@@ -32,7 +46,24 @@ function Home({ loggedIn }) {
 			.catch((err) => {
 				console.error("Error fetching equipment:", err);
 			});
-	}, []);
+	}, []); // The empty array means that the call is executed only at the first mount
+
+	// Decide whether to show the "guest" alert, before the return.
+	// Only shown when the user is NOT logged in.
+	let guestAlert = null;
+	if (!loggedIn) {
+		guestAlert = (
+			<Alert
+				variant="secondary"
+				className="d-flex justify-content-between align-items-center"
+			>
+				<div>
+					Browsing as <strong>guest</strong>: you can see availability but not
+					book.
+				</div>
+			</Alert>
+		);
+	}
 
 	return (
 		<Container fluid className="p-3">
@@ -45,20 +76,11 @@ function Home({ loggedIn }) {
 				</Col>
 			</Row>
 
-			{!loggedIn && (
-				<Alert
-					variant="secondary"
-					className="d-flex justify-content-between align-items-center"
-				>
-					<div>
-						Browsing as <strong>guest</strong>: you can see availability but not
-						book.
-					</div>
-				</Alert>
-			)}
+			{guestAlert}
 
 			<h2 className="mb-3 pb-2 border-bottom">Facilities By Type</h2>
 			<Row xs={1} sm={2} lg={3} className="g-3 mb-5">
+				{/* One FacilityCard per facility-type group */}
 				{facilityGroups.map((f) => (
 					<Col key={f.facilityTypeId}>
 						<FacilityCard group={f} />
