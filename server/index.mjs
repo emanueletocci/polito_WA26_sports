@@ -283,6 +283,42 @@ app.get("/api/reservations", isLoggedIn, async (req, res) => {
 	}
 });
 
+// GET /api/reservations/:id
+// Returns a single reservation belonging to the logged-in user, together with its
+// rented equipment. Used by the client to prefill the "modify reservation" page.
+app.get(
+	"/api/reservations/:id",
+	isLoggedIn,
+	[check("id").isInt({ min: 1 })],
+	async (req, res) => {
+		const errors = validationResult(req).formatWith(errorFormatter);
+		if (!errors.isEmpty()) {
+			return res.status(422).json(errors.errors);
+		}
+
+		const reservationId = Number(req.params.id);
+
+		try {
+			const reservation =
+				await reservationDao.getReservationById(reservationId);
+			if (reservation.error) return res.status(404).json(reservation);
+
+			// NEVER trust a userId coming from the client - always compare with
+			// req.user.id, which comes from the (server-side) session.
+			if (reservation.userId !== req.user.id) {
+				return res.status(403).json({ error: "Not authorized." });
+			}
+
+			const equipment =
+				await reservationDao.getRentsByReservation(reservationId);
+			res.json({ ...reservation, equipment });
+		} catch (err) {
+			console.error(err);
+			res.status(500).json({ error: "Database error" });
+		}
+	},
+);
+
 // POST /api/reservations
 // Creates a new reservation for the logged-in user, with optional equipment.
 // The request body must contain: facilityTypeId, optional facilityCode, and optional equipment array.
@@ -389,8 +425,13 @@ app.post(
 
 // PUT /api/reservations/:id
 // Modifies the optional/extra equipment of an existing active reservation.
-
-/*
+// Requirements enforced here:
+// - Mandatory equipment can never be changed (must stay exactly as originally booked).
+// - If the user's score is negative, optional equipment quantities can only DECREASE,
+//   never increase (see forum clarification: removing is always allowed, adding is not).
+// - An item silently missing from req.body.equipment (compared to what is currently
+//   rented) is treated as "reduced to 0" - this is why we loop over the facility type's
+//   full "rules" list below, not just over the request body.
 app.put(
 	"/api/reservations/:id",
 	isLoggedIn,
@@ -409,98 +450,44 @@ app.put(
 		const reservationId = Number(req.params.id);
 
 		try {
-			// retrieve the reservation to be modified
 			const reservation =
 				await reservationDao.getReservationById(reservationId);
+			if (reservation.error) return res.status(404).json(reservation);
 
-			// check: exists? belongs to THIS user? still active?
-			if (
-				reservation.error ||
-				reservation.userId !== req.user.id ||
-				reservation.status !== "active"
-			) {
-				return res.status(404).json({ error: "Reservation not found." });
+			// NEVER trust a userId coming from the client - always compare with
+			// req.user.id, which comes from the (server-side) session.
+			if (reservation.userId !== req.user.id) {
+				return res.status(403).json({ error: "Not authorized." });
 			}
 
-			// Retrieve the current rented equipment for this reservation
+			// Only an active reservation can be modified.
+			if (reservation.status !== "active") {
+				return res
+					.status(422)
+					.json({ error: "This reservation is not active." });
+			}
+
 			const currentRents =
 				await reservationDao.getRentsByReservation(reservationId);
-
 			const rules = await facilityDao.getEquipmentRulesForFacilityType(
 				reservation.facilityTypeId,
 			);
 
-			// Reject any requested equipment id that doesn't belong to this facility type.
-			const allowedIds = rules.map((r) => r.id);
-			const hasUnknownEquipment = req.body.equipment.some(
-				(e) => !allowedIds.includes(e.equipmentId),
+			// Validate the two business rules (mandatory locked, negative score
+			// only allows removals) and apply the changes to the DB (availability
+			// + rents rows). Returns { error } on the first violation found.
+			const applyResult = await applyEquipmentChanges(
+				reservationId,
+				currentRents,
+				rules,
+				req.body.equipment,
+				req.user.score,
 			);
-			if (hasUnknownEquipment) {
-				return res.status(422).json({
-					error: "Requested equipment is not valid for this facility type.",
-				});
+			if (applyResult && applyResult.error) {
+				return res.status(422).json(applyResult);
 			}
 
-			// Validate each rule directly against the quantity actually being ADDED (not the
-			// absolute total), since rule.availableQuantity already excludes what this
-			// reservation currently holds.
-			for (const rule of rules) {
-				const oldQty = getRequestedEquipmentQuantity(currentRents, rule.id);
-				const newQty = getRequestedEquipmentQuantity(
-					req.body.equipment,
-					rule.id,
-				);
-
-				if (newQty < rule.minQuantity) {
-					return res.status(422).json({
-						error: `Requested quantity for ${rule.name} is below the mandatory minimum of ${rule.minQuantity}.`,
-					});
-				}
-
-				// Negative score only blocks INCREASING a quantity; reducing is always allowed.
-				if (req.user.score < 0 && newQty > oldQty) {
-					return res.status(422).json({
-						error: `Negative score: cannot request additional ${rule.name}.`,
-					});
-				}
-
-				const extraNeeded = newQty - oldQty; // positive = need more, negative/zero = releasing or unchanged
-				if (extraNeeded > rule.availableQuantity) {
-					return res.status(422).json({
-						error: `Not enough equipment of type ${rule.name} available.`,
-					});
-				}
-			}
-
-			// Everything is valid: apply the difference for each equipment type.
-			for (const rule of rules) {
-				const oldQty = getRequestedEquipmentQuantity(currentRents, rule.id);
-				const newQty = getRequestedEquipmentQuantity(
-					req.body.equipment,
-					rule.id,
-				);
-				if (newQty === oldQty) continue; // nothing changed for this equipment type
-
-				const delta = newQty - oldQty;
-				if (delta > 0) {
-					await facilityDao.decrementEquipmentAvailability(rule.id, delta);
-				} else {
-					await facilityDao.incrementEquipmentAvailability(rule.id, -delta);
-				}
-
-				if (oldQty === 0) {
-					await reservationDao.addRent(reservationId, rule.id, newQty);
-				} else if (newQty === 0) {
-					await reservationDao.deleteRent(reservationId, rule.id);
-				} else {
-					await reservationDao.updateRentQuantity(
-						reservationId,
-						rule.id,
-						newQty,
-					);
-				}
-			}
-
+			// Return the reservation together with its updated equipment.
 			const updatedEquipment =
 				await reservationDao.getRentsByReservation(reservationId);
 			res.json({ ...reservation, equipment: updatedEquipment });
@@ -510,7 +497,6 @@ app.put(
 		}
 	},
 );
-*/
 
 // DELETE /api/reservations/:id
 // Cancels an existing active reservation: restores facility and equipment availability,
@@ -702,6 +688,101 @@ function getRequestedEquipmentQuantity(requested, equipmentId) {
 	if (!requested) return 0;
 	const line = requested.find((r) => r.equipmentId === equipmentId);
 	return line ? line.quantity : 0;
+}
+
+// Applies the equipment changes requested when modifying an EXISTING
+// reservation (PUT /api/reservations/:id). Unlike validateEquipmentRequest
+// (used at creation time, which only validates and returns lines to insert),
+// this function both validates the two edit-specific business rules AND
+// performs the DB writes (availability + rents rows) as it goes.
+// - reservationId: the reservation being modified
+// - currentRents: array from reservationDao.getRentsByReservation(reservationId),
+//   i.e. what is rented on this reservation RIGHT NOW
+// - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
+// - requestedEquipment: array from req.body.equipment, e.g. [{ equipmentId, quantity }, ...]
+// - userScore: the user's current score (negative -> only removals allowed)
+// Returns { error: 'message' } on the first violation found, or undefined on success.
+async function applyEquipmentChanges(
+	reservationId,
+	currentRents,
+	rules,
+	requestedEquipment,
+	userScore,
+) {
+	// Reject any equipmentId in the request that doesn't belong to this
+	// reservation's facility type at all.
+	const validIds = rules.map((r) => r.id);
+	for (const line of requestedEquipment) {
+		if (!validIds.includes(line.equipmentId)) {
+			return {
+				error: `Equipment ${line.equipmentId} is not valid for this facility type.`,
+			};
+		}
+	}
+
+	// Iterate over the FULL set of equipment rules for this facility type
+	// (not just the request body), so an item silently missing from the
+	// request is correctly treated as "reduced to 0" rather than ignored.
+	for (const rule of rules) {
+		const currentLine = currentRents.find((r) => r.equipmentId === rule.id);
+		const currentQty = currentLine ? currentLine.quantity : 0;
+		// Reuses the same helper function already used by validateEquipmentRequest:
+		// returns the requested quantity for this equipment, or 0 if the client
+		// omitted it (which, for optional equipment, means "removed").
+		const requestedQty = getRequestedEquipmentQuantity(
+			requestedEquipment,
+			rule.id,
+		);
+
+		if (requestedQty === currentQty) continue; // nothing to do for this line
+
+		// Rule 1: mandatory equipment can never be changed.
+		if (rule.minQuantity > 0) {
+			return {
+				error: `${rule.name} is mandatory and cannot be modified.`,
+			};
+		}
+
+		// Rule 2: a negative score forbids ANY increase, only decreases allowed.
+		if (userScore < 0 && requestedQty > currentQty) {
+			return {
+				error: "Negative score: only removing equipment is allowed.",
+			};
+		}
+
+		const delta = requestedQty - currentQty;
+
+		if (delta > 0) {
+			// Adding equipment: decrement availability atomically. If there
+			// isn't enough left, this is where the (real, race-condition-safe)
+			// check happens - not in a separate pre-check.
+			const decResult = await facilityDao.decrementEquipmentAvailability(
+				rule.id,
+				delta,
+			);
+			if (decResult && decResult.error) {
+				return decResult;
+			}
+		} else {
+			// Removing equipment: give the freed units back.
+			await facilityDao.incrementEquipmentAvailability(rule.id, -delta);
+		}
+
+		// Keep the "rents" table in sync with the new quantity.
+		if (currentQty === 0) {
+			await reservationDao.addRent(reservationId, rule.id, requestedQty);
+		} else if (requestedQty === 0) {
+			await reservationDao.deleteRent(reservationId, rule.id);
+		} else {
+			await reservationDao.updateRentQuantity(
+				reservationId,
+				rule.id,
+				requestedQty,
+			);
+		}
+	}
+
+	return undefined; // success, nothing to report
 }
 
 // Activating the server

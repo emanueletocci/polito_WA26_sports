@@ -152,7 +152,7 @@ const deleteRent = (reservationId, equipmentId) => {
 
 export default {
 	getActiveReservationsByUser,
-    getLastReleaseTime,
+	getLastReleaseTime,
 	getReservationById,
 	createReservation,
 	cancelReservation,

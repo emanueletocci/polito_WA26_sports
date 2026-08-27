@@ -151,7 +151,6 @@ const getEquipmentById = (id) => {
 	});
 };
 
-// TODO: testare
 // Decreases the available quantity of an equipment type by a given amount.
 // Only succeeds (changes = 1) if enough quantity is available - this is an atomic check-and-update
 // that prevents overbooking equipment under concurrent requests.
@@ -171,7 +170,6 @@ const decrementEquipmentAvailability = (equipmentId, quantity) => {
 	});
 };
 
-// TODO: testare
 // Increases the available quantity of an equipment type by a given amount (e.g. on reservation deletion).
 const incrementEquipmentAvailability = (equipmentId, quantity) => {
 	return new Promise((resolve, reject) => {
