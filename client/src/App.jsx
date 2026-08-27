@@ -10,6 +10,7 @@ import Home from "./components/Home.jsx";
 import { LoginForm, TotpForm } from "./components/Auth.jsx";
 import Reservations from "./components/Reservations.jsx";
 import Book from "./components/Book.jsx";
+import ReservationEdit from "./components/ReservationEdit.jsx";
 
 import API from "./API.js";
 
@@ -137,6 +138,16 @@ function App() {
 					}
 				/>
 				<Route
+					path="reservations/:reservationId/edit"
+					element={
+						loggedIn ? (
+							<ReservationEdit user={user} />
+						) : (
+							<Navigate to="/login" />
+						)
+					}
+				/>
+				<Route
 					path="book"
 					element={loggedIn ? <Book /> : <Navigate to="/login" />}
 				/>
@@ -165,13 +176,12 @@ function App() {
 	);
 }
 
-
 /**
  * LoginWithTotp
  *
  * INPUT (props):
  * - props.loggedIn: boolean, whether username/password have already been verified
- * - props.user: object, current user info 
+ * - props.user: object, current user info
  * - props.loggedInTotp: boolean, whether the TOTP step has already been completed
  * - props.login: function(credentials), performs the login (passed to LoginForm)
  * - props.setLoggedIn: function(boolean), state setter (passed to TotpForm)

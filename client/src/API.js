@@ -117,6 +117,50 @@ const getReservations = async () => {
 };
 
 /**
+ * Getting from the server side a single reservation belonging to the
+ * logged-in user, identified by its id. Used by the edit page to prefill
+ * the form with the currently reserved equipment.
+ *
+ * INPUT (params, positional):
+ * - reservationId: the id of the reservation to fetch
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the reservation object
+ *   { id, facilityTypeId, facilityTypeName, facilityCode, equipment: [...] },
+ *   or rejects with { error: <message> }
+ */
+const getReservation = async (reservationId) => {
+	return getJson(
+		fetch(SERVER_URL + "reservations/" + reservationId, {
+			credentials: "include",
+		}),
+	);
+};
+
+/**
+ * Updating the equipment associated with an existing reservation.
+ *
+ * INPUT (params, positional):
+ * - reservationId: the id of the reservation to update
+ * - equipment: array of { equipmentId, quantity }, the full equipment list
+ *   that the reservation should end up with (mandatory + optional)
+ *
+ * OUTPUT (return value):
+ * - a Promise (via getJson) that resolves to the updated reservation,
+ *   or rejects with { error: <message> }
+ */
+const updateReservation = async (reservationId, equipment) => {
+	return getJson(
+		fetch(SERVER_URL + "reservations/" + reservationId, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			credentials: "include",
+			body: JSON.stringify({ equipment }),
+		}),
+	);
+};
+
+/**
  * Sending a new reservation object to the server to book a facility (and optional equipment).
  *
  * INPUT (params, positional):
@@ -253,6 +297,8 @@ const API = {
 	logOut,
 	totpVerify,
 	getReservations,
+	getReservation,
+	updateReservation,
 	createReservation,
 	deleteReservation,
 };

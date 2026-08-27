@@ -441,7 +441,7 @@ app.post(
 // - If the user's score is negative, optional equipment quantities can only DECREASE,
 //   never increase (see forum clarification: removing is always allowed, adding is not).
 // - An item silently missing from req.body.equipment (compared to what is currently
-//   rented) is treated as "reduced to 0" - this is why we loop over the facility type's
+//   rented) is treated as "rSeduced to 0" - this is why we loop over the facility type's
 //   full "rules" list below, not just over the request body.
 app.put(
 	"/api/reservations/:id",

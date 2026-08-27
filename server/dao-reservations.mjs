@@ -32,19 +32,21 @@ const getActiveReservationsByUser = (userId) => {
 
 // getReservationById
 // Returns a single reservation given its id, joined with facility_type_id
-// (needed for authorization checks and to know which equipment rules apply).
+// AND facility_type_name (needed for authorization checks, to know which
+// equipment rules apply, and to display the facility type name in the UI).
 // - id: the id of the reservation to retrieve
 // Returns a Promise resolving to:
-// - { id, userId, facilityCode, createdAt, status, releasedAt, facilityTypeId } if found
+// - { id, userId, facilityCode, createdAt, status, releasedAt, facilityTypeId, facilityTypeName } if found
 // - { error: 'Reservation not found.' } if no reservation has this id
 const getReservationById = (id) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
       SELECT r.id, r.user_id AS userId, r.facility_code AS facilityCode,
              r.created_at AS createdAt, r.status, r.released_at AS releasedAt,
-             f.facility_type_id AS facilityTypeId
+             f.facility_type_id AS facilityTypeId, ft.name AS facilityTypeName
       FROM reservations r
       JOIN facilities f ON f.code = r.facility_code
+      JOIN facility_types ft ON ft.id = f.facility_type_id
       WHERE r.id = ?
     `;
 		db.get(sql, [id], (err, row) => {
@@ -81,6 +83,9 @@ const createReservation = (userId, facilityCode) => {
 // - { error: 'Reservation not found.' } if no reservation has this id
 const cancelReservation = (id) => {
 	return new Promise((resolve, reject) => {
+		// Computed here in JS (not with SQLite's datetime('now', ...)) so that
+		// the stored format is always a proper ISO 8601 string, matching what
+		// dayjs(lastRelease) expects when read back in isRebookingTooEarly.
 		const releasedAt = dayjs().toISOString();
 		const sql = `UPDATE reservations SET status = 'cancelled', released_at = ? WHERE id = ?`;
 		db.run(sql, [releasedAt, id], function (err) {
