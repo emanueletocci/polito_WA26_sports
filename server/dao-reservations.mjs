@@ -1,13 +1,18 @@
 /* Data Access Object (DAO) module for accessing reservations and rents data */
 
 import db from "./db.mjs";
+import dayjs from "dayjs";
 
 // -----------------------------------------------------------------------------
 // RESERVATIONS
 // -----------------------------------------------------------------------------
 
+// getActiveReservationsByUser
 // Returns all ACTIVE reservations for a given user, joined with facility info.
 // Used by: GET /api/reservations
+// - userId: the id of the user whose reservations should be retrieved
+// Returns a Promise resolving to an array of rows, each shaped like:
+// { id, userId, facilityCode, createdAt, facilityTypeId, facilityTypeName }
 const getActiveReservationsByUser = (userId) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
@@ -25,8 +30,13 @@ const getActiveReservationsByUser = (userId) => {
 	});
 };
 
+// getReservationById
 // Returns a single reservation given its id, joined with facility_type_id
 // (needed for authorization checks and to know which equipment rules apply).
+// - id: the id of the reservation to retrieve
+// Returns a Promise resolving to:
+// - { id, userId, facilityCode, createdAt, status, releasedAt, facilityTypeId } if found
+// - { error: 'Reservation not found.' } if no reservation has this id
 const getReservationById = (id) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
@@ -45,8 +55,13 @@ const getReservationById = (id) => {
 	});
 };
 
+// createReservation
 // Creates a new (active) reservation for a user on a given facility.
-// Returns the id of the newly created reservation.
+// - userId: the id of the user making the reservation
+// - facilityCode: the code of the facility being reserved (must already be
+//   booked atomically via facilityDao.bookFacilityIfFree before calling this)
+// Returns a Promise resolving to the id of the newly created reservation
+// (this.lastID, the autoincrement id assigned by SQLite).
 const createReservation = (userId, facilityCode) => {
 	return new Promise((resolve, reject) => {
 		const sql =
@@ -58,11 +73,17 @@ const createReservation = (userId, facilityCode) => {
 	});
 };
 
+// cancelReservation
 // Marks a reservation as cancelled and records the release time (used for the 30s rebooking rule).
+// - id: the id of the reservation to cancel
+// Returns a Promise resolving to:
+// - the number of changed rows (1) on success
+// - { error: 'Reservation not found.' } if no reservation has this id
 const cancelReservation = (id) => {
 	return new Promise((resolve, reject) => {
-		const sql = `UPDATE reservations SET status = 'cancelled', released_at = datetime('now', 'localtime') WHERE id = ?`;
-		db.run(sql, [id], function (err) {
+		const releasedAt = dayjs().toISOString();
+		const sql = `UPDATE reservations SET status = 'cancelled', released_at = ? WHERE id = ?`;
+		db.run(sql, [releasedAt, id], function (err) {
 			if (err) reject(err);
 			else if (this.changes !== 1) resolve({ error: "Reservation not found." });
 			else resolve(this.changes);
@@ -70,10 +91,14 @@ const cancelReservation = (id) => {
 	});
 };
 
-// TODO: Controllare utilitá
+// getLastReleaseTime
 // Returns the timestamp of the most recent release (cancellation) by this user for this facility type,
 // or undefined if none exists. The caller compares this timestamp with the current time in JS
 // to decide whether the 30-second cooldown rule applies (no date arithmetic done in SQL).
+// - userId: the id of the user to check
+// - facilityTypeId: the facility type to check the cooldown for
+// Returns a Promise resolving to the raw released_at string, or undefined if
+// this user never cancelled a reservation of this facility type.
 const getLastReleaseTime = (userId, facilityTypeId) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
@@ -95,7 +120,11 @@ const getLastReleaseTime = (userId, facilityTypeId) => {
 // RENTS (equipment rented for a reservation)
 // -----------------------------------------------------------------------------
 
+// getRentsByReservation
 // Returns all equipment rented for a given reservation, joined with equipment info.
+// - reservationId: the id of the reservation whose rented equipment should be retrieved
+// Returns a Promise resolving to an array of rows, each shaped like:
+// { reservationId, equipmentId, quantity, name, minQuantity }
 const getRentsByReservation = (reservationId) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
@@ -112,7 +141,14 @@ const getRentsByReservation = (reservationId) => {
 	});
 };
 
+// addRent
 // Adds one equipment line to a reservation (used at creation time, and when adding an extra at update time).
+// - reservationId: the reservation the equipment line belongs to
+// - equipmentId: the id of the equipment being rented
+// - quantity: how many units are being rented
+// Returns a Promise resolving to the id of the newly created rent row
+// (this.lastID). The caller is responsible for also decrementing the
+// equipment's available quantity (facilityDao.decrementEquipmentAvailability).
 const addRent = (reservationId, equipmentId, quantity) => {
 	return new Promise((resolve, reject) => {
 		const sql =
@@ -124,7 +160,14 @@ const addRent = (reservationId, equipmentId, quantity) => {
 	});
 };
 
+// updateRentQuantity
 // Updates the quantity of an already-rented equipment line (used when the user changes an extra quantity).
+// - reservationId: the reservation the equipment line belongs to
+// - equipmentId: the id of the equipment whose quantity is being updated
+// - quantity: the new quantity to set
+// Returns a Promise resolving to:
+// - the number of changed rows (1) on success
+// - { error: 'Rent line not found.' } if no matching row exists
 const updateRentQuantity = (reservationId, equipmentId, quantity) => {
 	return new Promise((resolve, reject) => {
 		const sql =
@@ -137,8 +180,14 @@ const updateRentQuantity = (reservationId, equipmentId, quantity) => {
 	});
 };
 
+// deleteRent
 // Removes one equipment line from a reservation (used when removing an optional/extra item; the caller
 // must ensure this is never called for a mandatory minimum line).
+// - reservationId: the reservation the equipment line belongs to
+// - equipmentId: the id of the equipment line to remove
+// Returns a Promise resolving to the number of deleted rows (0 or 1 - the
+// caller does not currently distinguish between "nothing to delete" and
+// "deleted successfully").
 const deleteRent = (reservationId, equipmentId) => {
 	return new Promise((resolve, reject) => {
 		const sql =

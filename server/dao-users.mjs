@@ -55,7 +55,10 @@ const getUser = (email, password) => {
 					32,
 					function (err, hashedPassword) {
 						// WARN: it is 64 and not 32 (as in the week example) in the DB
-						if (err) reject(err);
+						if (err) {
+							reject(err);
+							return;
+						}
 						if (
 							!crypto.timingSafeEqual(
 								// row.password_hash is stored as a hex string (TEXT column in SQLite), not as raw bytes.
