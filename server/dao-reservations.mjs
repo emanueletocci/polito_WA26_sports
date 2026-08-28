@@ -66,9 +66,10 @@ const getReservationById = (id) => {
 // (this.lastID, the autoincrement id assigned by SQLite).
 const createReservation = (userId, facilityCode) => {
 	return new Promise((resolve, reject) => {
+		const createdAt = dayjs().toISOString();
 		const sql =
-			"INSERT INTO reservations (user_id, facility_code) VALUES (?, ?)";
-		db.run(sql, [userId, facilityCode], function (err) {
+			"INSERT INTO reservations (user_id, facility_code, created_at) VALUES (?, ?, ?)";
+		db.run(sql, [userId, facilityCode, createdAt], function (err) {
 			if (err) reject(err);
 			else resolve(this.lastID);
 		});
@@ -76,21 +77,24 @@ const createReservation = (userId, facilityCode) => {
 };
 
 // cancelReservation
-// Marks a reservation as cancelled and records the release time (used for the 30s rebooking rule).
+// Marks an ACTIVE reservation as cancelled and records the release time (used for
+// the 30s rebooking rule). Two concurrent DELETE requests on the same reservation
+// can never both succeed, so the equipment is given back only once and the user's
+// score is decremented only once.
 // - id: the id of the reservation to cancel
 // Returns a Promise resolving to:
-// - the number of changed rows (1) on success
-// - { error: 'Reservation not found.' } if no reservation has this id
+// - the number of changed rows (1) if the reservation was active and has been cancelled
+// - { error: 'Reservation not found or not active.' } if it does not exist or was
+//   already cancelled (possibly by a concurrent request)
 const cancelReservation = (id) => {
 	return new Promise((resolve, reject) => {
-		// Computed here in JS (not with SQLite's datetime('now', ...)) so that
-		// the stored format is always a proper ISO 8601 string, matching what
-		// dayjs(lastRelease) expects when read back in isRebookingTooEarly.
 		const releasedAt = dayjs().toISOString();
-		const sql = `UPDATE reservations SET status = 'cancelled', released_at = ? WHERE id = ?`;
+		const sql = `UPDATE reservations SET status = 'cancelled', released_at = ?
+             WHERE id = ? AND status = 'active'`;
 		db.run(sql, [releasedAt, id], function (err) {
 			if (err) reject(err);
-			else if (this.changes !== 1) resolve({ error: "Reservation not found." });
+			else if (this.changes !== 1)
+				resolve({ error: "Reservation not found or not active" });
 			else resolve(this.changes);
 		});
 	});
