@@ -4,98 +4,89 @@
 
 ## React Client Application Routes
 
-- Route `/`: home page, public. Shows the free/booked facility counts (by type) and the full equipment stock table.
-- Route `/login`: login page. Shows the email/password form and, when the user has 2FA enabled, the second-factor (TOTP) form.
-- Route `/reservations`: the logged-in user's active reservations, with buttons to edit or delete each one.
-- Route `/reservations/:reservationId/edit`: modify the optional equipment of one existing reservation (`reservationId` is the reservation's numeric id).
-- Route `/book`: create a new reservation (facility type/instance, then equipment quantities).
+- Route `/`: public home page. Shows the facilities grouped by type (how many are free out of the total, with the codes of the free ones) and the availability of every equipment type. Accessible without logging in.
+- Route `/login`: login page. Asks for email and password and, for the users who have 2FA enabled, then shows the form for the TOTP code.
+- Route `/reservations`: list of the active reservations of the logged-in user, with the equipment of each one and the buttons to modify or delete it.
+- Route `/reservations/:reservationId/edit`: page that modifies the equipment of one existing reservation. `reservationId` is the id of the reservation to modify.
+- Route `/book`: page that creates a new reservation: choice of the facility type, manual or automatic choice of the facility, and choice of the equipment.
+- Route `*`: page shown for any unknown address, with a link back to the home page.
 
 ## API Server
 
-### Authentication APIs
+### Authentication
 
 - POST `/api/sessions`
-  - request body: `{ email, password }`
-  - response body: user info `{ id, email, name, surname, score, hasTotpEnabled, isTotpVerified }`, or `401` with an error message on wrong credentials
-
+  - Performs the login. Request body: `{ email, password }`.
+  - Response: the info of the logged-in user, `{ id, email, name, surname, score, hasTotpEnabled, isTotpVerified }`. 401 if the credentials are wrong.
 - POST `/api/login-totp`
-  - request parameters: none (requires an already logged-in session)
-  - request body: `{ code }` (6-digit TOTP code)
-  - response body: `{ otp: "authorized" }` (and the user's score is reset to 0), or `400`/`401` with an error message if TOTP is not enabled for the user or the code is invalid/expired/replayed
-
+  - Second step of the login: verifies the TOTP code and resets the score to 0. Request body: `{ code }`. Requires an open session.
+  - Response: `{ otp: "authorized" }`. 401 if the code is wrong, expired or already used.
 - GET `/api/sessions/current`
-  - request parameters: none
-  - response body: user info (same shape as `POST /api/sessions`) if authenticated, or `401` if not
-
+  - Returns the info of the currently logged-in user, in the same format as the login. 401 if there is no session.
 - DELETE `/api/sessions/current`
-  - request parameters: none
-  - response body: empty object `{}` on success
+  - Performs the logout of the current user. Response: `{}`.
 
-### Facilities & Equipment APIs (public, no login required)
+### Facilities and equipment (public)
 
 - GET `/api/facilities`
-  - query parameter: `status` (optional, `"free"` or `"booked"`); if omitted, all facilities are returned
-  - response body: `[{ code, facilityTypeId, facilityTypeName, isBooked }, ...]`, or `422` if `status` has an invalid value
-
+  - Returns all the facilities. Optional query parameter `status`, with value `free` or `booked`, to get only those.
+  - Response: array of `{ code, isBooked, facilityTypeId, facilityTypeName }`.
 - GET `/api/facility-types`
-  - request parameters: none
-  - response body: `[{ id, name }, ...]`
-
+  - Returns the list of the facility types. Response: array of `{ id, name }`.
 - GET `/api/equipment`
-  - query parameter: `facilityTypeId` (optional). Without it, returns the full stock (public homepage); with it, returns only the equipment rules for that facility type (reservation form)
-  - response body (no filter): `[{ id, name, totalQuantity, availableQuantity, facilityTypeName }, ...]`
-  - response body (with `facilityTypeId`): `[{ id, name, totalQuantity, availableQuantity, minQuantity }, ...]` (`minQuantity` 0 = optional)
+  - Returns all the equipment. Optional query parameter `facilityTypeId` to get only the equipment of one facility type.
+  - Response: array of `{ id, name, facilityTypeId, facilityTypeName, totalQuantity, availableQuantity, minQuantity }`. `minQuantity` greater than 0 means that the equipment is mandatory for that facility type.
 
-### Reservations APIs (require login)
+### Reservations (they all require an open session)
 
 - GET `/api/reservations`
-  - request parameters: none
-  - response body: the logged-in user's active reservations, e.g. `[{ id, facilityCode, facilityTypeId, facilityTypeName, createdAt, equipment: [{ equipmentId, name, quantity, minQuantity }, ...] }, ...]`
-
+  - Returns the active reservations of the logged-in user, each one with its equipment.
+  - Response: array of `{ id, facilityCode, facilityTypeId, facilityTypeName, createdAt, equipment: [{ equipmentId, name, quantity, minQuantity }] }`.
 - GET `/api/reservations/:id`
-  - request parameters: `id` (reservation id)
-  - response body: one reservation (same shape as above, plus `status`, `releasedAt`), or `403` (not the owner) / `404` (not found) / `422` (invalid id)
-
+  - Returns one reservation of the logged-in user, with its equipment, in the same format as above. 404 if it does not exist or belongs to another user.
 - POST `/api/reservations`
-  - request body: `{ facilityTypeId, facilityCode (optional, for manual selection), equipment: [{ equipmentId, quantity }, ...] }`
-  - response body: the newly created reservation (same shape as `GET /api/reservations/:id`), or `422` with a specific error message (e.g. not enough facilities/equipment, too early to reserve again, request exceeds what the user's score allows)
-
+  - Creates a new reservation. Request body: `{ facilityTypeId, facilityCode, equipment: [{ equipmentId, quantity }] }`. `facilityCode` is optional: when it is absent the server assigns a free facility of the requested type.
+  - Response: the created reservation, with its equipment. 422 with `{ error }` if the facility or the equipment is not available, if the mandatory minimum quantities are not respected, if the score of the user does not allow the request, or if fewer than 30 seconds have passed since the user released a facility of the same type.
 - PUT `/api/reservations/:id`
-  - request parameters: `id` (reservation id)
-  - request body: `{ equipment: [{ equipmentId, quantity }, ...] }` (only optional/extra equipment can change; mandatory minimums are locked)
-  - response body: the updated reservation (same shape as `GET /api/reservations/:id`), or `403`/`404`/`422` with an error message
-
+  - Modifies the equipment of an existing reservation. Request body: `{ equipment: [{ equipmentId, quantity }] }`, the complete list the reservation must end up with.
+  - Response: the updated reservation. 422 with `{ error }` if a mandatory item is modified, if the score of the user does not allow adding equipment, or if the added quantity is not available.
 - DELETE `/api/reservations/:id`
-  - request parameters: `id` (reservation id)
-  - response body: empty object `{}` on success, or `404` if the reservation does not exist or does not belong to the logged-in user
+  - Deletes a reservation: it makes the facility and the equipment available again, and decreases the score of the user by 1. Response: `{}`.
 
 ## Database Tables
 
-- Table `users`: registered users. Columns: `id` (PK), `email` (unique), `name`, `surname`, `password_hash`, `salt`, `score`, `totp_secret` (nullable, per-user 2FA secret), `last_totp_step` (nullable, replay protection).
-- Table `facility_types`: the 6 fixed sport categories. Columns: `id` (PK), `name`.
-- Table `facilities`: individual bookable facility instances. Columns: `code` (PK, e.g. `"T1"`), `facility_type_id` (FK to `facility_types`), `is_booked`.
-- Table `equipment`: rentable equipment types. Columns: `id` (PK), `facility_type_id` (FK to `facility_types`), `name`, `total_quantity`, `available_quantity`, `min_quantity` (0 = optional; >0 = mandatory minimum for that facility type).
-- Table `reservations`: active/cancelled reservations. Columns: `id` (PK), `user_id` (FK to `users`), `facility_code` (FK to `facilities`), `created_at`, `status` (`"active"` / `"cancelled"`), `released_at` (nullable; set on cancellation, used for the 30-second rebooking cooldown).
-- Table `rents`: equipment actually rented for each reservation (join table). Columns: `reservation_id` (FK to `reservations`), `equipment_id` (FK to `equipment`), `quantity`.
+- Table `users`: the users of the application. Columns: `id` (primary key), `name`, `surname`, `email` (unique), `password_hash`, `salt`, `totp_secret`, `last_totp_step` (last TOTP time step used, against replay), `score`.
+- Table `facility_types`: the types of facility of the sport center (tennis, basketball, ...). Columns: `id` (primary key), `name` (unique).
+- Table `facilities`: the single facilities. Columns: `code` (primary key, e.g. "T2"), `facility_type_id`, `is_booked` (0 or 1).
+- Table `equipment`: the equipment available for rental, with the rule that applies to its facility type. Columns: `id` (primary key), `facility_type_id`, `name` (unique), `total_quantity`, `available_quantity`, `min_quantity` (0 means optional, greater than 0 means mandatory with that minimum).
+- Table `reservations`: the reservations. Columns: `id` (primary key), `user_id`, `facility_code`, `created_at`, `status` ("active" or "cancelled"), `released_at` (when it was cancelled, used for the 30-second rule).
+- Table `rents`: the equipment rented by every reservation. Columns: `reservation_id` and `equipment_id` (together, the primary key), `quantity`.
 
 ## Main React Components
 
-- `App` (in `App.jsx`): top-level component; owns the authentication state (`loggedIn`, `loggedInTotp`, `user`) and declares all the routes.
-- `Layout` (in `Layout.jsx`): persistent page shell; renders `Navigation` plus the matched route's content via `<Outlet />`.
-- `Navigation` (in `Navigation.jsx`): top navbar; shows the login button (guest) or the user's name/score/reservation links/logout button (logged in).
-- `LoginForm` / `TotpForm` (in `Auth.jsx`): the username/password form and, when needed, the second-factor (TOTP) form.
-- `Home` (in `Home.jsx`): public landing page; fetches facilities/equipment and renders `FacilityCard` (one per facility type) and `EquipmentTable`.
-- `Book` (in `Book.jsx`): "new reservation" page; lets the user pick a facility (manual or automatic assignment) and the equipment quantities, then submits the reservation.
-- `Reservations` (in `Reservations.jsx`): lists the logged-in user's active reservations, with edit/delete actions.
-- `ReservationEdit` (in `ReservationEdit.jsx`): lets the user change the optional equipment of one existing reservation, respecting the locked-mandatory and negative-score rules.
+- `App` (in `App.jsx`): root component. It holds the authentication state and the message shown after every operation, and it defines all the routes.
+- `Layout` (in `Layout.jsx`): shell shared by every page, made of the navigation bar, the message of the last operation, and the content of the current route.
+- `Home` (in `Home.jsx`): public home page. It loads the facilities and the equipment once, and passes to every card the equipment of its own type.
+- `FacilityCard` (in `FacilityCard.jsx`): card of one facility type, with the free/total count, the codes of the free facilities, and the mandatory and optional equipment.
+- `EquipmentTable` (in `EquipmentTable.jsx`): table with the availability of every equipment type.
+- `Book` (in `Book.jsx`): page that creates a reservation. It handles the choice of the type, the manual or automatic choice of the facility, and the rules that depend on the score of the user.
+- `EquipmentSelection` and `EquipmentRow` (in `EquipmentSelection.jsx`): the card that chooses the equipment and the single line with the +/- controls. `EquipmentRow` is also used by the page that modifies a reservation.
+- `Reservations` (in `Reservations.jsx`): list of the reservations of the user, with the actions to modify and delete them.
+- `ReservationEdit` (in `ReservationEdit.jsx`): page that modifies the equipment of one reservation. The mandatory equipment is shown but locked.
+- `LoginForm` and `TotpForm` (in `Auth.jsx`): the form for email and password, and the form for the TOTP code.
+- `Navigation` (in `Navigation.jsx`): navigation bar, with the name and the score of the user and the links to the pages of the application.
 
 ## Screenshot
 
-![Screenshot](./img/homepage_login.png)
+![Screenshot of the facility selection page](./img/book.png)
 
 ## Users Credentials
 
-- `s363290@studenti.polito.it`, `Password1!` (user, no active reservations, score 0, 2FA not enabled)
-- `user2@example.com`, `Password2!` (user, 1 active reservation, score 0, 2FA enabled)
-- `user3@example.com`, `Password3!` (user, 1 active reservation, score -1, 2FA not enabled)
-- `user4@example.com`, `Password4!` (user, 2 active reservations, score -2, 2FA enabled)
+The 2FA secret is the same for every user, as allowed by the exam text, and it is stored separately for each of them in the database. All the users can therefore log in with the second factor and, by doing so, bring a negative score back to zero.
+
+| Email | Password | Characteristics |
+| --- | --- | --- |
+| <s363290@studenti.polito.it> | Password1! | No reservation, score 0 |
+| <user2@example.com> | Password2! | One reservation (tennis court T1), score 0 |
+| <user3@example.com> | Password3! | One active reservation (basketball court B1), one cancelled, score -1 |
+| <user4@example.com> | Password4! | Two active reservations (volleyball court V1, table tennis table P1), two cancelled, score -2 |
