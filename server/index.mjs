@@ -1,17 +1,17 @@
 /*** Importing modules ***/
 import express from "express";
-import morgan from "morgan"; // logging middleware
-import { check, validationResult } from "express-validator"; // validation middleware
+import morgan from "morgan";
+import { check, validationResult } from "express-validator";
 import cors from "cors";
 
 /** Authentication-related imports **/
-import passport from "passport"; // authentication middleware
-import LocalStrategy from "passport-local"; // authentication strategy (email and password)
+import passport from "passport";
+import LocalStrategy from "passport-local";
 import session from "express-session";
 
 import { TOTP } from "otpauth";
 
-import userDao from "./dao-users.mjs"; // module for accessing the users table in the DB
+import userDao from "./dao-users.mjs";
 import reservationDao from "./dao-reservations.mjs";
 import facilityDao from "./dao-facilities.mjs";
 
@@ -570,6 +570,18 @@ app.delete(
 // Utiity functions
 // -----------------------------------------------------------------------------
 
+// Turns a snake_case name into Title Case: replaces underscores with spaces,
+// then capitalizes the first letter of every word.
+// Example: "table_tennis" -> "Table Tennis", "knee_pads" -> "Knee Pads".
+function formatName(name) {
+	// Splitting the string into 2 different substrings if _ is present
+	const words = name.split("_");
+	const capitalizedWords = words.map(
+		(word) => word.charAt(0).toUpperCase() + word.slice(1),
+	);
+	return capitalizedWords.join(" ");
+}
+
 function clientUserInfo(req) {
 	const user = req.user;
 	return {
@@ -675,7 +687,7 @@ function validateEquipmentRequest(rules, requested, userScore) {
 		// check availability against the current stock
 		if (requestedQuantity > rule.availableQuantity) {
 			return {
-				error: `Not enough equipment of type ${rule.name} available.`,
+				error: `Not enough equipment of type ${"formatName(rule.name)"} available.`,
 			};
 		}
 	}

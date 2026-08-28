@@ -5,7 +5,7 @@ import API from "../API.js";
 import { formatName } from "../utils.js";
 
 // -----------------------------------------------------------------------------
-// REQUIREMENTS RECAP (see WA26_exam3_Sport.pdf + forum clarification):
+// REQUIREMENTS RECAP:
 // - Mandatory equipment CANNOT be changed here: it must stay exactly as it
 //   was when the reservation was created ("existing reservations must be
 //   kept as they are"). It is shown read-only.
