@@ -19,8 +19,7 @@ import { LoginButton, LogoutButton } from "./Auth.jsx";
 function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 	// authSection: the right-hand side content of the navbar.
 	// Its content depends entirely on whether the user is logged in or not,
-	// so it's computed once here (with a standard if/else), then just
-	// inserted into the JSX below via {authSection}.
+	// so it's computed once here 
 	let authSection;
 	if (loggedIn) {
 		authSection = (

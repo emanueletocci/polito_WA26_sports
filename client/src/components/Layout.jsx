@@ -22,9 +22,6 @@ import Navigation from "./Navigation.jsx";
  *   through <Outlet />
  */
 function Layout({ loggedIn, user, loggedInTotp, logout, message, setMessage }) {
-	// The Alert is built here, before the return, with a standard if:
-	// it is shown only when an operation has actually produced a feedback.
-	// Its colour comes from message.type ("success" or "danger").
 	let messageAlert = null;
 	if (message) {
 		messageAlert = (
@@ -54,9 +51,8 @@ function Layout({ loggedIn, user, loggedInTotp, logout, message, setMessage }) {
 			{messageAlert}
 
 			{/*
-				Outlet is a React Router placeholder: it renders whichever child
+				Outlet is basically a Router placeholder: it renders whichever child
 				route component currently matches the URL (e.g. Home, Book, ...).
-				This is what makes Layout a shared "wrapper" around every page.
 			*/}
 			<Outlet />
 		</>
