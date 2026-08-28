@@ -1,61 +1,74 @@
 import { useState, useEffect } from "react";
-import { Container, Table, Badge, Button, Alert } from "react-bootstrap";
-import API from "../API.js";
-import { formatName } from "../utils.js";
+import { Container, Table, Badge, Button } from "react-bootstrap";
 import { Link } from "react-router";
 
+import API from "../API.js";
+import { formatName } from "../utils.js";
+
 /**
- * Renders one reservation as a table row: facility name/code, equipment badges,
- * status, and the modify/delete actions.
+ * ReservationRow
  *
- * INPUT:
- * - r: a single reservation object { id, facilityTypeName, facilityCode, equipment }
- *   where equipment is an array of { equipmentId, name, quantity }
- * - onDelete: function(reservationId), called when the "Delete" button
- *   for this row is clicked
+ * INPUT (props, passed as a single object):
+ * - reservation: one reservation object { id, facilityTypeName, facilityCode,
+ *   equipment }, where equipment is an array of { equipmentId, name, quantity }
+ * - onDelete: function(reservationId), called when the "Delete" button of this
+ *   row is clicked
+ * - disabled: boolean, true while a delete request is in progress
  *
  * OUTPUT (return value):
- * - a single <tr> representing this reservation
+ * - JSX: one <tr> describing this reservation, with the actions to modify or
+ *   delete it
  */
-function renderReservationRow(r, onDelete) {
+function ReservationRow(props) {
+	const reservation = props.reservation;
+
+	// One badge per equipment item rented with this reservation. When the
+	// reservation has no equipment at all a placeholder is shown instead.
+	let equipmentContent;
+	if (reservation.equipment.length === 0) {
+		equipmentContent = <span className="text-muted">N/A</span>;
+	} else {
+		equipmentContent = reservation.equipment.map((eq) => (
+			<Badge
+				key={eq.equipmentId}
+				bg="info"
+				text="dark"
+				pill
+				className="me-1 mb-1"
+			>
+				{formatName(eq.name)} &times;{eq.quantity}
+			</Badge>
+		));
+	}
+
 	return (
-		<tr key={r.id}>
-			<td>{formatName(r.facilityTypeName)}</td>
+		<tr>
+			<td>{formatName(reservation.facilityTypeName)}</td>
 			<td>
 				<Badge bg="primary" pill>
-					{r.facilityCode}
+					{reservation.facilityCode}
 				</Badge>
 			</td>
+			<td>{equipmentContent}</td>
 			<td>
-				{/* One Badge per equipment item booked with this reservation */}
-				{r.equipment.map((eq) => (
-					<Badge
-						key={eq.equipmentId}
-						bg="info"
-						text="dark"
-						pill
-						className="me-1 mb-1"
-					>
-						{formatName(eq.name)} &times;{eq.quantity}
-					</Badge>
-				))}
-			</td>
-			<td>
-				<Badge bg="success">Active</Badge>
-			</td>
-			<td>
-				{/* "Edit" navigates to the edit page for this specific reservation */}
+				{/* "Edit" goes to the page that modifies this specific reservation */}
 				<Button
 					as={Link}
-					to={"/reservations/" + r.id + "/edit"}
+					to={"/reservations/" + reservation.id + "/edit"}
 					variant="warning"
 					size="sm"
 					className="me-2"
+					disabled={props.disabled}
 				>
 					Edit
 				</Button>
-				{/* "Delete" triggers onDelete with this reservation's id */}
-				<Button variant="danger" size="sm" onClick={() => onDelete(r.id)}>
+				{/* "Delete" asks the parent to remove this reservation */}
+				<Button
+					variant="danger"
+					size="sm"
+					disabled={props.disabled}
+					onClick={() => props.onDelete(reservation.id)}
+				>
 					Delete
 				</Button>
 			</td>
@@ -67,27 +80,35 @@ function renderReservationRow(r, onDelete) {
  * Reservations
  *
  * INPUT (props, passed as a single object):
- * - refreshUserInfo: function, called to re-fetch/update the current user info
- *   (needed because deleting a reservation changes the user's score server-side)
+ * - refreshUserInfo: function, re-fetches the info of the current user (needed
+ *   because deleting a reservation changes the score on the server)
+ * - showSuccess: function(text), shows a confirmation message to the user
+ * - handleErrors: function(err), shows the reason of a failed operation
  *
  * OUTPUT (return value):
- * - JSX: the "My reservations" page, showing either a placeholder message
- *   (no reservations) or a table with one row per reservation
+ * - JSX: the "My reservations" page, showing either a placeholder message (no
+ *   reservations) or a table with one row per reservation
  */
-function Reservations({ refreshUserInfo }) {
-	// reservations: the list of the current user's reservations
-	const [reservations, setReservations] = useState([]);
-	// errorMsg: text shown in the red Alert box; empty string = no error
-	const [errorMsg, setErrorMsg] = useState("");
+function Reservations(props) {
+	// The props used inside the effect and the handlers are destructured here,
+	// instead of being read as props.something inside them.
+	const { refreshUserInfo, showSuccess, handleErrors } = props;
 
-	// Fetch the reservations once, when the page mounts.
+	// reservations: the active reservations of the current user
+	const [reservations, setReservations] = useState([]);
+	// disabled: true while a delete request is in progress, to avoid sending the
+	// same request twice with a double click
+	const [disabled, setDisabled] = useState(false);
+
+	// Load the reservations once, when the page mounts.
 	useEffect(() => {
 		API.getReservations()
 			.then((data) => setReservations(data))
-			.catch((err) => {
-				console.error("Error fetching reservations:", err);
-				setErrorMsg("Could not load your reservations.");
-			});
+			.catch((err) => handleErrors(err));
+		// handleErrors is deliberately NOT listed among the dependencies: it is
+		// re-created at every render of App, so listing it would make this fetch
+		// run again at every render of the parent. Its behaviour never changes
+		// (it only calls setMessage), so the captured version is always equivalent.
 	}, []);
 
 	/**
@@ -97,62 +118,66 @@ function Reservations({ refreshUserInfo }) {
 	 * - reservationId: the id of the reservation to delete
 	 *
 	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it calls the API to delete
-	 *   the reservation, then updates local state and refreshes the user info.
+	 * - none (undefined). Its job is a SIDE EFFECT: it asks the server to delete
+	 *   the reservation, then updates the list, shows the outcome, and refreshes
+	 *   the user info (the score changed on the server).
 	 */
 	const handleDelete = (reservationId) => {
+		setDisabled(true);
 		API.deleteReservation(reservationId)
 			.then(() => {
-				// Remove the deleted reservation from local state.
+				// Remove the deleted reservation from the local state.
 				setReservations((prev) => prev.filter((r) => r.id !== reservationId));
-				// Rehydrate the user info, since deleting a reservation changes the score server-side.
+				showSuccess(
+					"Reservation deleted: the facility and its equipment are available again. Your score decreased by 1.",
+				);
+				// The score changed on the server, so the user info is fetched again.
 				refreshUserInfo();
 			})
-			.catch((err) => {
-				console.error("Error deleting reservation:", err);
-				setErrorMsg(err.error || "Could not delete the reservation.");
-			});
+			.catch((err) => handleErrors(err))
+			.finally(() => setDisabled(false));
 	};
+
+	// What to show instead of the table when the user has no reservation yet is
+	// decided before the return, with a standard if/else.
+	let content;
+	if (reservations.length === 0) {
+		content = (
+			<p className="text-muted">
+				You have no active reservations. Use the "Book" button in the navigation
+				bar to create one.
+			</p>
+		);
+	} else {
+		content = (
+			<Table bordered hover>
+				<thead>
+					<tr>
+						<th>Facility</th>
+						<th>Facility code</th>
+						<th>Equipment</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{/* One row per reservation */}
+					{reservations.map((r) => (
+						<ReservationRow
+							key={r.id}
+							reservation={r}
+							onDelete={handleDelete}
+							disabled={disabled}
+						/>
+					))}
+				</tbody>
+			</Table>
+		);
+	}
 
 	return (
 		<Container fluid className="py-4">
 			<h1 className="mb-4">My reservations</h1>
-
-			{/*
-				This is NOT a ternary: {errorMsg && (...)} is a logical AND
-				short-circuit. If errorMsg is a non-empty string (truthy), React
-				renders the Alert. If errorMsg is "" (falsy), nothing is rendered.
-			*/}
-			{errorMsg && (
-				<Alert variant="danger" dismissible onClose={() => setErrorMsg("")}>
-					{errorMsg}
-				</Alert>
-			)}
-
-			{/*
-				Ternary deciding what to show instead of the table:
-				- if there are no reservations, show a placeholder message
-				- otherwise, show the full table with one row per reservation
-			*/}
-			{reservations.length === 0 ? (
-				<p className="text-muted">You have no active reservations.</p>
-			) : (
-				<Table bordered hover>
-					<thead>
-						<tr>
-							<th>Facility</th>
-							<th>Facility Code</th>
-							<th>Equipment</th>
-							<th>Status</th>
-							<th>Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{/* One row per reservation, built via renderReservationRow */}
-						{reservations.map((r) => renderReservationRow(r, handleDelete))}
-					</tbody>
-				</Table>
-			)}
+			{content}
 		</Container>
 	);
 }

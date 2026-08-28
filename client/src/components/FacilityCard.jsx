@@ -1,42 +1,71 @@
 import { Card, Badge, Stack } from "react-bootstrap";
-import { useState, useEffect } from "react";
-import API from "../API.js";
-import { formatName } from "../utils";
+
+import { formatName } from "../utils.js";
 
 /**
  * FacilityCard
  *
- * INPUT (props):
- * - group: object describing one facility-type group, shaped like:
+ * Purely presentational component: it performs no request of its own. The
+ * equipment of this facility type is fetched once by Home, together with the
+ * whole list, and passed here already filtered.
+ *
+ * INPUT (props, passed as a single object):
+ * - group: object describing one group of facilities of the same type:
  *     {
- *       facilityTypeId,      // id used to fetch the equipment rules for this type
- *       facilityTypeName,    // display name of the facility type
- *       free,                // number of currently free facilities of this type
- *       totalCount,          // total number of facilities of this type
- *       freeCodes,           // array of codes of the free facilities, e.g. ["A1", "A2"]
+ *       facilityTypeId,      // id of the facility type
+ *       facilityTypeName,    // name of the facility type
+ *       free,                // how many facilities of this type are free
+ *       totalCount,          // how many facilities of this type exist
+ *       freeCodes,           // codes of the free facilities, e.g. ["T2", "T3"]
  *     }
+ * - equipmentRules: array of the equipment of this facility type, i.e.
+ *   [{ id, name, minQuantity, availableQuantity, totalQuantity }, ...]
  *
  * OUTPUT (return value):
- * - a Card showing the facility type name, a badge with free/total count,
- *   the codes of the free facilities, and the mandatory/optional equipment for
- *   this facility type
+ * - JSX: a Card with the name of the facility type, a badge with the free/total
+ *   count, the codes of the free facilities, and the mandatory and optional
+ *   equipment of this type
  */
-function FacilityCard({ group }) {
-	// equipmentRules: the list of equipment rules for this specific facility type,
-	const [equipmentRules, setEquipmentRules] = useState([]);
+function FacilityCard(props) {
+	const group = props.group;
 
-	// Fetch the equipment rules whenever the facility type id changes
-	// (in practice, this runs once per card, since each card has its own group).
-	useEffect(() => {
-		API.getEquipment(group.facilityTypeId)
-			.then((rules) => setEquipmentRules(rules))
-			.catch((err) => console.error("Error fetching equipment rules:", err));
-	}, [group.facilityTypeId]);
+	// Split the equipment into mandatory (minQuantity > 0) and optional ones.
+	const mandatory = props.equipmentRules.filter((eq) => eq.minQuantity > 0);
+	const optional = props.equipmentRules.filter((eq) => eq.minQuantity === 0);
 
-	// Split the equipment rules into two groups: mandatory (minQuantity > 0)
-	// and optional (minQuantity === 0).
-	const mandatory = equipmentRules.filter((eq) => eq.minQuantity > 0);
-	const optional = equipmentRules.filter((eq) => eq.minQuantity === 0);
+	// ---- Text of the mandatory equipment ----
+	// With at least one item a single string like "Tennis Racket x2, Tennis Ball x3"
+	// is built, otherwise a placeholder is shown.
+	let mandatoryText;
+	if (mandatory.length > 0) {
+		mandatoryText = mandatory
+			.map((eq) => `${formatName(eq.name)} \u00D7${eq.minQuantity}`)
+			.join(", ");
+	} else {
+		mandatoryText = "N/A";
+	}
+
+	// ---- Text of the optional equipment ----
+	let optionalText;
+	if (optional.length > 0) {
+		optionalText = optional.map((eq) => formatName(eq.name)).join(", ");
+	} else {
+		optionalText = "N/A";
+	}
+
+	// ---- Codes of the free facilities ----
+	let freeCodesContent;
+	if (group.freeCodes.length > 0) {
+		freeCodesContent = group.freeCodes.map((code) => (
+			<Badge key={code} bg="primary">
+				{code}
+			</Badge>
+		));
+	} else {
+		freeCodesContent = (
+			<span className="text-muted small">No facility available</span>
+		);
+	}
 
 	return (
 		<Card>
@@ -47,43 +76,24 @@ function FacilityCard({ group }) {
 					className="justify-content-between"
 				>
 					<Card.Title>{formatName(group.facilityTypeName)}</Card.Title>
-					{/* Badge color depends on how many facilities are still free */}
+					{/* The colour of the badge depends on how many facilities are free */}
 					<Badge bg={getBadgeColor(group.free)}>
 						{group.free}/{group.totalCount} free
 					</Badge>
 				</Stack>
 
-				{/* Showing the available facility codes */}
+				{/* Codes of the facilities that can still be booked */}
 				<Stack direction="horizontal" gap={2} className="flex-wrap mb-3">
-					{group.freeCodes.map((code) => (
-						<Badge key={code} bg="primary">
-							{code}
-						</Badge>
-					))}
+					{freeCodesContent}
 				</Stack>
 
-				{/* Mandatory equipment for this facility type, with the minimum quantity required */}
-				<p className="text-muted small">Mandatory equipment</p>
-				<p className="mb-2">
-					{/*
-						If there is at least one mandatory item, build a single string like
-						"Ball ×2, Net ×1".
-						Otherwise, show "N/A" as a placeholder for "nothing to show".
-					*/}
-					{mandatory.length > 0
-						? mandatory
-								.map((eq) => `${formatName(eq.name)} \u00D7${eq.minQuantity}`)
-								.join(", ")
-						: "—"}
-				</p>
+				{/* Mandatory equipment, with the minimum quantity required */}
+				<p className="text-muted small mb-1">Mandatory equipment</p>
+				<p className="mb-2">{mandatoryText}</p>
 
-				{/* Optional equipment for this facility type */}
-				<p className="text-muted small">Optional</p>
-				<p>
-					{optional.length > 0
-						? optional.map((eq) => formatName(eq.name)).join(", ")
-						: "N/A"}
-				</p>
+				{/* Optional equipment */}
+				<p className="text-muted small mb-1">Optional</p>
+				<p className="mb-0">{optionalText}</p>
 			</Card.Body>
 		</Card>
 	);
@@ -96,8 +106,9 @@ function FacilityCard({ group }) {
  * - free: number, how many facilities of this type are currently free
  *
  * OUTPUT (return value):
- * - string: a react-bootstrap variant name used for the Badge background
- *   - "danger" (red) if none are free
+ * - string: the name of a react-bootstrap variant, used as the background of
+ *   the badge:
+ *   - "danger" (red) if none is free
  *   - "warning" (yellow) if exactly one is free
  *   - "success" (green) if two or more are free
  */

@@ -1,25 +1,31 @@
 import { useState } from "react";
 import { Form, Button, Alert, Col, Row, Card } from "react-bootstrap";
 import { Link, useNavigate } from "react-router";
+
 import API from "../API.js";
 
 /**
- * Form for entering the 2FA (TOTP) code after a successful login
+ * TotpForm
+ *
+ * Form used to enter the 2FA (TOTP) code, after the email and the password have
+ * already been verified. Completing this step also resets a negative score back
+ * to zero, as required by the specification.
  *
  * INPUT (props, passed as a single object):
- * - props.totpSuccessful: function, called (no arguments) when the TOTP code
- *   is verified successfully, to tell the parent component the 2FA step is done
- * - props.refreshUserInfo: function, called to re-fetch/update the current user
- *   info after a successful TOTP verification
- * - props.setLoggedIn: function(boolean), used to log the user out (set to false)
- *   if the session has expired while entering the TOTP code
+ * - props.totpSuccessful: function, called (with no argument) when the code has
+ *   been verified, to tell the parent that the 2FA step is done
+ * - props.refreshUserInfo: function, re-fetches the info of the current user
+ *   (the score may have been reset by the server)
+ * - props.setLoggedIn: function(boolean), used to log the user out if the
+ *   session expired while the code was being typed
+ * - props.showSuccess: function(text), shows a confirmation message
  *
  * OUTPUT (return value):
- * - a card with a form to enter the 6-digit TOTP code, a "Validate" button,
- *   and a "Skip" button
+ * - JSX: a card with the field for the 6-digit code, a "Validate" button and a
+ *   "Skip" button
  */
 function TotpForm(props) {
-	// totpCode: the 6-digit code currently typed by the user
+	// totpCode: the code currently typed by the user
 	const [totpCode, setTotpCode] = useState("");
 
 	const [errorMessage, setErrorMessage] = useState("");
@@ -29,19 +35,24 @@ function TotpForm(props) {
 	/**
 	 * doTotpVerify
 	 *
-	 * INPUT: none (reads totpCode from the component's state via closure)
+	 * INPUT: none (it reads totpCode from the state of the component, through the
+	 * closure)
 	 *
 	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it calls the API to verify
-	 *   the TOTP code, and on success/failure updates state and/or navigates.
+	 * - none (undefined). Its job is a SIDE EFFECT: it asks the server to verify
+	 *   the code and, depending on the outcome, updates the state or navigates.
 	 */
 	const doTotpVerify = () => {
 		API.totpVerify(totpCode)
 			.then(() => {
 				setErrorMessage("");
-				// Tell the parent component that 2FA succeeded...
+				// Tell the parent component that the 2FA step succeeded...
 				props.totpSuccessful();
+				// ...and fetch the user info again, since the score has been reset.
 				props.refreshUserInfo();
+				props.showSuccess(
+					"Two-factor authentication completed: your score is back to zero.",
+				);
 				navigate("/");
 			})
 			.catch((err) => {
@@ -50,11 +61,11 @@ function TotpForm(props) {
 					setErrorMessage(
 						"Your session has expired, you will be redirected to the login page",
 					);
-					// Wait 2 seconds (so the user can read the message), then log out.
+					// Wait two seconds, so that the message can be read, then log out.
 					setTimeout(() => props.setLoggedIn(false), 2000);
 				} else {
-					// NB: Must use a generic error message
-					// (avoid giving attackers hints about why the code was rejected)
+					// NB: a generic message must be used here, to avoid telling an
+					// attacker why exactly the code was rejected.
 					setErrorMessage("Wrong code, please try again");
 				}
 			});
@@ -67,21 +78,20 @@ function TotpForm(props) {
 	 * - event: the (synthetic) form submit event
 	 *
 	 * OUTPUT (return value):
-	 * - none (undefined). Validates the code locally, then either calls
-	 *   doTotpVerify() or shows a validation error message.
+	 * - none (undefined). It validates the code locally and then either calls
+	 *   doTotpVerify() or shows a validation message.
 	 */
 	const handleSubmit = (event) => {
-		// Prevent the browser's default behavior (a full page reload on submit).
+		// Prevent the browser's default behaviour (a full page reload on submit).
 		event.preventDefault();
 		setErrorMessage("");
 
-		// Some validation
 		// A valid TOTP code must be present and exactly 6 characters long.
 		let valid = true;
 		if (totpCode === "" || totpCode.length !== 6) valid = false;
 
 		if (valid) {
-			doTotpVerify(totpCode);
+			doTotpVerify();
 		} else {
 			setErrorMessage(
 				"Invalid content in form: either empty or not 6-char long",
@@ -89,34 +99,34 @@ function TotpForm(props) {
 		}
 	};
 
+	// The Alert is shown only when there is something to report.
+	let errorAlert = null;
+	if (errorMessage) {
+		errorAlert = (
+			<Alert variant="danger" dismissible onClose={() => setErrorMessage("")}>
+				{errorMessage}
+			</Alert>
+		);
+	}
+
 	return (
 		<Row className="justify-content-center mt-5">
 			<Col md={5}>
-				<Card className="p-3 shadow-sm">
-					<h2>Second Factor Authentication</h2>
-					<h5>Please enter the code that you read on your device</h5>
+				<Card className="p-3">
+					<h1 className="h3">Second factor authentication</h1>
+					<p className="text-muted">
+						Enter the code shown by your authenticator app. Completing this step
+						also resets a negative score back to zero.
+					</p>
 					<Form onSubmit={handleSubmit}>
-						{/* Show the error Alert only when errorMessage is not empty,
-						    otherwise render nothing (empty string) */}
-						{errorMessage ? (
-							<Alert
-								variant="danger"
-								dismissible
-								onClose={() => setErrorMessage("")}
-							>
-								{errorMessage}
-							</Alert>
-						) : (
-							""
-						)}
-						<Form.Group controlId="totpCode">
-							<Form.Label>Code</Form.Label>
+						{errorAlert}
+						<Form.Group controlId="totpCode" className="mb-3">
+							<Form.Label>Code (6 digits)</Form.Label>
 							{/*
 								- ev is a (synthetic) event object
-								- ev.target represents the DOM element that triggered the event
-								  (here, the text input the user is typing into)
-								- ev.target.value is the current text content of the input,
-								  i.e. what the user has typed so far
+								- ev.target is the DOM element that generated the event
+								  (here, the text field the user is typing into)
+								- ev.target.value is what the user has typed so far
 							*/}
 							<Form.Control
 								type="text"
@@ -124,14 +134,11 @@ function TotpForm(props) {
 								onChange={(ev) => setTotpCode(ev.target.value)}
 							/>
 						</Form.Group>
-						<Button className="my-2" type="submit">
+						<Button className="me-2" type="submit">
 							Validate
 						</Button>
-						<Button
-							className="my-2 mx-2"
-							variant="danger"
-							onClick={() => navigate("/")}
-						>
+						{/* The second factor is optional: the user may go on without it */}
+						<Button variant="secondary" onClick={() => navigate("/")}>
 							Skip
 						</Button>
 					</Form>
@@ -142,20 +149,22 @@ function TotpForm(props) {
 }
 
 /**
- * Form for log in
+ * LoginForm
  *
  * INPUT (props, passed as a single object):
- * - props.login: function(credentials) that returns a Promise; performs the
- *   actual login API call. credentials = { email, password }
+ * - props.login: function(credentials) returning a Promise; it performs the
+ *   actual login. credentials = { email, password }
  *
  * OUTPUT (return value):
- * - JSX: a card with email/password fields, a "Login" button, and a
- *   "Continue as guest" link
+ * - JSX: a card with the email and password fields, a "Login" button and a link
+ *   back to the public home page
  */
 function LoginForm(props) {
-	// email/password: the values currently typed into the two form fields
-	const [email, setEmail] = useState("");
-	const [password, setPassword] = useState("");
+	// The fields start already filled in with the credentials of a test user:
+	// during the evaluation of the project this saves the time of typing them at
+	// every login. They can of course be edited.
+	const [email, setEmail] = useState("user2@example.com");
+	const [password, setPassword] = useState("Password2!");
 
 	const [errorMessage, setErrorMessage] = useState("");
 
@@ -166,70 +175,77 @@ function LoginForm(props) {
 	 * - event: the (synthetic) form submit event
 	 *
 	 * OUTPUT (return value):
-	 * - none (undefined). Validates the fields locally, then either calls
-	 *   props.login(credentials) or shows a validation error message.
+	 * - none (undefined). It checks that the fields are not empty and then either
+	 *   calls props.login(credentials) or shows a validation message.
+	 *   NB: the content of the password is NOT checked here (length, characters):
+	 *   validating a password at login time would tell an attacker how the
+	 *   passwords of this application are made.
 	 */
 	const handleSubmit = (event) => {
-		// Prevent the browser's default behavior (a full page reload on submit).
+		// Prevent the browser's default behaviour (a full page reload on submit).
 		event.preventDefault();
-		const credentials = { email, password };
+		const credentials = { email: email, password: password };
 
 		if (!email) {
 			setErrorMessage("Email cannot be empty");
 		} else if (!password) {
 			setErrorMessage("Password cannot be empty");
 		} else {
-			// Navigation after a successful login happens automatically: LoginWithTotp,
-			// in App.jsx, re-renders based on the updated loggedIn/user state and decides
-			// whether to show the TOTP screen or redirect straight to the home page.
+			// Navigating after a successful login happens by itself: LoginWithTotp,
+			// in App.jsx, re-renders with the updated loggedIn/user state and decides
+			// whether to show the TOTP screen or to go straight to the home page.
 			props.login(credentials).catch((err) => {
-				setErrorMessage(err.error);
+				// The credentials were refused by the server: the user must clearly
+				// see that the attempt failed.
+				if (err && err.error) setErrorMessage(err.error);
+				else setErrorMessage("Login failed, please try again");
 			});
 		}
 	};
 
+	// The Alert is shown only when there is something to report.
+	let errorAlert = null;
+	if (errorMessage) {
+		errorAlert = (
+			<Alert variant="danger" dismissible onClose={() => setErrorMessage("")}>
+				{errorMessage}
+			</Alert>
+		);
+	}
+
 	return (
 		<Row className="justify-content-center mt-5">
 			<Col md={5}>
-				<Card className="p-3 shadow-sm">
-					<h1 className="text-center">Login</h1>
+				<Card className="p-3">
+					<h1 className="h3 text-center">Login</h1>
 					<Form onSubmit={handleSubmit}>
-						{/* Show the error Alert only when errorMessage is not empty */}
-						{errorMessage ? (
-							<Alert
-								dismissible
-								onClose={() => setErrorMessage("")}
-								variant="danger"
-							>
-								{errorMessage}
-							</Alert>
-						) : null}
-						<Form.Group className="mb-3">
+						{errorAlert}
+						<Form.Group className="mb-3" controlId="email">
 							<Form.Label>Email</Form.Label>
-							{/* ev.target.value = the current text typed in the email field */}
+							{/* ev.target.value = the text currently typed in the field */}
 							<Form.Control
 								type="email"
 								value={email}
-								placeholder="Example: user2@example.com"
 								onChange={(ev) => setEmail(ev.target.value)}
 							/>
 						</Form.Group>
-						<Form.Group className="mb-3">
+						<Form.Group className="mb-3" controlId="password">
 							<Form.Label>Password</Form.Label>
-							{/* ev.target.value = the current text typed in the password field */}
 							<Form.Control
 								type="password"
 								value={password}
-								placeholder="Enter your password"
 								onChange={(ev) => setPassword(ev.target.value)}
 							/>
 						</Form.Group>
 						<Button className="mt-3 w-100" type="submit">
 							Login
 						</Button>
-						{/* Lets an unauthenticated user proceed without logging in */}
+						{/*
+							The home page is public: this is only a way back to it, not an
+							alternative way of authenticating.
+						*/}
 						<Link to="/" className="d-block mt-3 text-center">
-							Continue as guest
+							Back to the home page
 						</Link>
 					</Form>
 				</Card>
@@ -239,11 +255,10 @@ function LoginForm(props) {
 }
 
 /**
- * Button that logs the current user out when clicked
+ * LogoutButton
  *
  * INPUT (props, passed as a single object):
- * - props.logout: function, called (no arguments) when the button is clicked;
- *   performs the actual logout logic
+ * - props.logout: function, called (with no argument) when the button is clicked
  *
  * OUTPUT (return value):
  * - JSX: a single red "Logout" button
@@ -257,10 +272,12 @@ function LogoutButton(props) {
 }
 
 /**
- * Button that navigates to the login page when clicked
+ * LoginButton
+ *
+ * INPUT: none (this component takes no props)
  *
  * OUTPUT (return value):
- * - JSX: a single "Login" button that, when clicked, navigates to "/login"
+ * - JSX: a single "Login" button that navigates to "/login" when clicked
  */
 function LoginButton() {
 	const navigate = useNavigate();

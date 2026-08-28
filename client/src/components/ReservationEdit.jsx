@@ -1,150 +1,67 @@
 import { useState, useEffect } from "react";
-import { Container, Table, Badge, Button, Alert } from "react-bootstrap";
+import { Container, Card, Button, Alert } from "react-bootstrap";
 import { useNavigate, useParams } from "react-router";
+
 import API from "../API.js";
 import { formatName } from "../utils.js";
+import { EquipmentRow } from "./EquipmentSelection.jsx";
 
 // -----------------------------------------------------------------------------
-// REQUIREMENTS RECAP:
-// - Mandatory equipment CANNOT be changed here: it must stay exactly as it
-//   was when the reservation was created ("existing reservations must be
-//   kept as they are"). It is shown read-only.
-// - Optional equipment CAN be freely increased/decreased...
-// - ...UNLESS the user's score is negative: in that case, optional equipment
-//   can only be DECREASED (removed), never increased/added
-//   (forum: Enrico Masala, 25/08/26 - "still be able to modify it but only
-//   for removing extra equipment, not for adding anything").
+// RULES OF THIS PAGE (from the exam text and the course forum):
+// - The mandatory equipment CANNOT be changed here: it must stay exactly as it
+//   was when the reservation was created. It is shown, but read-only.
+// - The optional equipment can be freely added or removed...
+// - ...unless the user's score is negative: in that case it can only be REMOVED,
+//   never added (forum, Enrico Masala, 25/08/26: "still be able to modify it but
+//   only for removing extra equipment, not for adding anything").
+// As always, these rules are enforced by the server: what is done here only
+// prevents the user from attempting an operation that would be rejected.
 // -----------------------------------------------------------------------------
-
-/**
- * renderMandatoryRow
- *
- * INPUT (params, positional):
- * - eq: an equipment rule object { id, name, minQuantity, availableQuantity }
- * - quantity: number, the quantity currently reserved for this equipment
- *   (fixed, cannot be changed by the user)
- *
- * OUTPUT (return value):
- * - JSX: a read-only <tr> for a mandatory equipment item, with its own
- *   "Type" column instead of a badge stuck next to the name.
- */
-function renderMandatoryRow(eq, quantity) {
-	return (
-		<tr key={eq.id}>
-			<td>{formatName(eq.name)}</td>
-			<td>
-				<Badge bg="secondary">Mandatory, locked</Badge>
-			</td>
-			<td>{quantity}</td>
-		</tr>
-	);
-}
-
-/**
- * renderOptionalRow
- *
- * INPUT (params, positional):
- * - eq: an equipment rule object { id, name, minQuantity, availableQuantity }
- * - quantity: number, the quantity currently selected for this equipment
- * - canAdd: boolean, whether the "+" button is allowed
- *   (false when the user's score is negative)
- * - handleQuantityChange: function(eq, delta), updates the quantity
- * - formDisabled: boolean, true while the form is submitting
- *
- * OUTPUT (return value):
- * - JSX: a <tr> for an optional equipment item, with its own "Type" column
- *   and the +/- controls.
- */
-function renderOptionalRow(
-	eq,
-	quantity,
-	canAdd,
-	handleQuantityChange,
-	formDisabled,
-) {
-	return (
-		<tr key={eq.id}>
-			<td>{formatName(eq.name)}</td>
-			<td>
-				<Badge bg="light" text="dark">
-					Optional
-				</Badge>
-			</td>
-			<td>
-				<Button
-					size="sm"
-					variant="outline-secondary"
-					type="button"
-					disabled={formDisabled}
-					// "-" is always allowed: removing equipment is permitted
-					// even for users with a negative score.
-					onClick={() => handleQuantityChange(eq, -1)}
-				>
-					-
-				</Button>
-				<span className="mx-2">{quantity}</span>
-				<Button
-					size="sm"
-					variant="outline-secondary"
-					type="button"
-					// "+" is disabled while submitting, AND disabled entirely
-					// if the user's score is negative (canAdd === false).
-					disabled={formDisabled || !canAdd}
-					onClick={() => handleQuantityChange(eq, 1)}
-				>
-					+
-				</Button>
-			</td>
-		</tr>
-	);
-}
 
 /**
  * ReservationEdit
  *
  * INPUT (props, passed as a single object):
- * - user: object, the currently logged-in user (needs user.score, to decide
- *   whether adding optional equipment is allowed)
+ * - user: object, the currently logged-in user (user.score decides whether
+ *   optional equipment may be added)
+ * - showSuccess: function(text), shows a confirmation message to the user
+ * - handleErrors: function(err), shows the reason of a failed operation
  *
  * OUTPUT (return value):
- * - JSX: a page to modify the equipment of one existing reservation
- *   (identified by the ":reservationId" URL param)
+ * - JSX: the page that modifies the equipment of one existing reservation,
+ *   identified by the ":reservationId" parameter of the URL
  */
-function ReservationEdit({ user }) {
+function ReservationEdit(props) {
 	// reservationId comes from the URL, e.g. "/reservations/12/edit" -> "12"
 	const { reservationId } = useParams();
 	const navigate = useNavigate();
 
-	// reservation: the reservation being edited, fetched from the server.
-	// null while still loading.
+	// The props used inside the effect are destructured here, and not read as
+	// props.something inside it: this way the effect declares exactly which value
+	// it depends on, instead of depending on the whole props object (which changes
+	// identity at every render of the parent).
+	const { user, showSuccess, handleErrors } = props;
+
+	// reservation: the reservation being modified, as loaded from the server
+	// (null while it is still loading, or if it could not be loaded at all)
 	const [reservation, setReservation] = useState(null);
-	// equipmentRules: all equipment rules (mandatory + optional) for this
+	// equipmentRules: all the equipment (mandatory and optional) of this
 	// reservation's facility type, e.g. [{ id, name, minQuantity, availableQuantity }, ...]
 	const [equipmentRules, setEquipmentRules] = useState([]);
 	// quantities: equipment id -> currently selected quantity (editable)
 	const [quantities, setQuantities] = useState({});
-	// initialQuantities: equipment id -> quantity as it was when the page
-	// loaded (a snapshot, never changed by the user). Needed to correctly
-	// compute how much of an item this SAME reservation may still request
-	// (see the availability note below).
+	// initialQuantities: equipment id -> quantity at page load. It is a snapshot,
+	// never modified by the user, needed to compute correctly how much of an item
+	// THIS reservation may still ask for (see the note in handleQuantityChange).
 	const [initialQuantities, setInitialQuantities] = useState({});
 
 	const [loading, setLoading] = useState(true);
-	const [errorMsg, setErrorMsg] = useState("");
 	const [formDisabled, setFormDisabled] = useState(false);
 
-	const handleServerError = (err) => {
-		let msg = "";
-		if (err.error) msg = err.error;
-		else if (typeof err === "string") msg = String(err);
-		else msg = "Unknown Error";
-		setErrorMsg(msg);
-	};
-
-	// ---- Load the reservation, then the equipment rules for its facility type ----
+	// ---- Load the reservation, then the equipment of its facility type ----
 	useEffect(() => {
-		// "cancelled" guards against setting state after the component has
-		// unmounted (e.g. the user navigates away before the fetch completes).
+		// "cancelled" prevents setting the state after the component has been
+		// unmounted (e.g. the user leaves the page before the fetch completes).
 		let cancelled = false;
 
 		API.getReservation(reservationId)
@@ -156,19 +73,19 @@ function ReservationEdit({ user }) {
 					if (cancelled) return;
 					setEquipmentRules(rules);
 
-					// Build the starting quantities: for each equipment rule,
-					// look up how much of it is already part of this
-					// reservation (0 if it isn't there at all).
+					// Starting quantities: for every equipment of this facility type,
+					// how much of it is already part of this reservation (0 if none).
 					const startQuantities = {};
 					rules.forEach((eq) => {
 						const existing = res.equipment.find((e) => e.equipmentId === eq.id);
-						startQuantities[eq.id] = existing ? existing.quantity : 0;
+						if (existing) startQuantities[eq.id] = existing.quantity;
+						else startQuantities[eq.id] = 0;
 					});
 					setQuantities(startQuantities);
 					setInitialQuantities(startQuantities);
 				});
 			})
-			.catch((err) => handleServerError(err))
+			.catch((err) => handleErrors(err))
 			.finally(() => {
 				if (!cancelled) setLoading(false);
 			});
@@ -176,44 +93,56 @@ function ReservationEdit({ user }) {
 		return () => {
 			cancelled = true;
 		};
+		// Only reservationId is listed: handleErrors is omitted on purpose, because
+		// it is re-created at every render of App and listing it would reload the
+		// reservation at every render of the parent. Its behaviour never changes.
 	}, [reservationId]);
+
+	/**
+	 * getEffectiveMax
+	 *
+	 * INPUT (params, positional):
+	 * - equipment: the equipment object being changed
+	 *
+	 * OUTPUT (return value):
+	 * - number: the highest quantity of this item that THIS reservation may end
+	 *   up with. availableQuantity is what is free right now in the whole sport
+	 *   center and does NOT include the units already held by this reservation
+	 *   (they were subtracted from the pool when it was created), so the units
+	 *   already held must be added back.
+	 *   NB: this is only as fresh as the snapshot taken at page load. The server
+	 *   checks the availability again when the change is submitted, and rejects
+	 *   the request if in the meantime the units are gone.
+	 */
+	const getEffectiveMax = (equipment) => {
+		return equipment.availableQuantity + initialQuantities[equipment.id];
+	};
 
 	/**
 	 * handleQuantityChange
 	 *
 	 * INPUT (params, positional):
-	 * - eq: the equipment rule object whose quantity is being changed
+	 * - equipment: the equipment object whose quantity is being changed
 	 * - delta: number, how much to add to the current quantity (+1 or -1)
 	 *
 	 * OUTPUT (return value):
-	 * - none (undefined). Side effect: updates the "quantities" state.
+	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "quantities" state.
 	 */
-	const handleQuantityChange = (eq, delta) => {
+	const handleQuantityChange = (equipment, delta) => {
 		setQuantities((prev) => {
-			const current = prev[eq.id];
+			const current = prev[equipment.id];
 			let next = current + delta;
 
-			// Never go below 0 (optional equipment has no real minimum).
+			// Optional equipment has no minimum: never below 0.
 			if (next < 0) next = 0;
 
-			// IMPORTANT / NOT YET FINAL (flagged for the backend race-condition
-			// discussion): eq.availableQuantity, as returned by API.getEquipment,
-			// is the quantity free RIGHT NOW across the whole system - it does
-			// NOT include the units already held by THIS reservation (those
-			// were already subtracted from the pool when the reservation was
-			// created). So the real ceiling for "how much of this item can
-			// THIS reservation end up with" is:
-			//   eq.availableQuantity + initialQuantities[eq.id]
-			// This is only as correct as the snapshot taken at page load: if
-			// another user books/releases the same equipment in the meantime,
-			// this client-side cap can go stale. The server MUST re-validate
-			// availability (ideally inside a transaction) when the update is
-			// actually submitted, and reject/report if it no longer holds.
-			const effectiveMax = eq.availableQuantity + initialQuantities[eq.id];
+			const effectiveMax = getEffectiveMax(equipment);
 			if (next > effectiveMax) next = effectiveMax;
 
+			// A copy of the whole object is created, so prev is never modified
+			// (React state must always be treated as immutable).
 			const updated = { ...prev };
-			updated[eq.id] = next;
+			updated[equipment.id] = next;
 			return updated;
 		});
 	};
@@ -225,27 +154,30 @@ function ReservationEdit({ user }) {
 	 * - event: the (synthetic) form submit / button click event
 	 *
 	 * OUTPUT (return value):
-	 * - none (undefined). Side effect: sends the updated equipment list to
-	 *   the server, then navigates back to "/reservations" on success.
+	 * - none (undefined). Its job is a SIDE EFFECT: it sends the new equipment
+	 *   list to the server and, depending on the outcome, shows a confirmation
+	 *   and goes back to the reservations page, or shows the error.
 	 */
 	const handleSubmit = (event) => {
 		event.preventDefault();
-		setErrorMsg("");
 
-		// Build the full equipment array to send (mandatory items unchanged,
-		// optional items with their possibly-edited quantity). Items at 0
-		// quantity are dropped, exactly like in Book.jsx.
+		// The full equipment list is sent (mandatory items unchanged, optional
+		// items with their possibly modified quantity). Items at 0 are dropped,
+		// exactly as when a reservation is created.
 		const equipment = Object.entries(quantities)
-			.filter(([, qty]) => qty > 0)
+			.filter(([, quantity]) => quantity > 0)
 			.map(([equipmentId, quantity]) => ({
 				equipmentId: Number(equipmentId),
-				quantity,
+				quantity: quantity,
 			}));
 
 		setFormDisabled(true);
 		API.updateReservation(reservationId, equipment)
-			.then(() => navigate("/reservations"))
-			.catch((err) => handleServerError(err))
+			.then(() => {
+				showSuccess("Reservation updated.");
+				navigate("/reservations");
+			})
+			.catch((err) => handleErrors(err))
 			.finally(() => setFormDisabled(false));
 	};
 
@@ -258,45 +190,75 @@ function ReservationEdit({ user }) {
 		);
 	}
 
-	// ---- Error state: the reservation could not be loaded at all ----
+	// ---- The reservation could not be loaded at all ----
+	// The reason has already been shown by handleErrors: here the user is only
+	// given a clearly visible way back.
 	if (!reservation) {
 		return (
 			<Container fluid className="py-4">
 				<Alert variant="danger">
-					{errorMsg || "Could not load this reservation."}
+					This reservation could not be loaded.
 				</Alert>
+				<Button variant="secondary" onClick={() => navigate("/reservations")}>
+					Back to my reservations
+				</Button>
 			</Container>
 		);
 	}
 
-	// Split the equipment rules into mandatory (read-only here) and optional
-	// (editable, within the score-based limits described above).
+	// Mandatory equipment (read-only here) and optional equipment (editable,
+	// within the limits described at the top of this file).
 	const mandatory = equipmentRules.filter((eq) => eq.minQuantity > 0);
 	const optional = equipmentRules.filter((eq) => eq.minQuantity === 0);
 
-	// A negative score means the user may only REMOVE optional equipment in
-	// this edit, never add more (see the forum clarification quoted above).
+	// A negative score allows removing equipment, never adding it.
 	const canAddOptional = user.score >= 0;
 
-	// Decide whether to show the "negative score" warning, before the return.
-	let negativeScoreWarning = null;
+	// ---- Warning shown to users with a negative score ----
+	let negativeScoreAlert = null;
 	if (!canAddOptional) {
-		negativeScoreWarning = (
+		negativeScoreAlert = (
 			<Alert variant="warning">
-				Your score is negative: you may still remove equipment, but you cannot
-				add optional equipment to this reservation.
+				Your score is negative: you can still remove equipment, but you cannot
+				add any. Logging in again with the 2FA code brings your score back to
+				zero.
 			</Alert>
 		);
 	}
 
-	// Decide whether to show the error alert, before the return.
-	let errorAlert = null;
-	if (errorMsg) {
-		errorAlert = (
-			<Alert variant="danger" dismissible onClose={() => setErrorMsg("")}>
-				{errorMsg}
-			</Alert>
-		);
+	// ---- Mandatory section: shown, but not editable ----
+	let mandatoryContent;
+	if (mandatory.length === 0) {
+		mandatoryContent = <p className="text-muted">N/A</p>;
+	} else {
+		mandatoryContent = mandatory.map((eq) => (
+			<EquipmentRow
+				key={eq.id}
+				equipment={eq}
+				quantity={quantities[eq.id]}
+				readOnly={true}
+				readOnlyLabel="Mandatory, locked"
+			/>
+		));
+	}
+
+	// ---- Optional section: editable ----
+	let optionalContent;
+	if (optional.length === 0) {
+		optionalContent = <p className="text-muted">N/A</p>;
+	} else {
+		optionalContent = optional.map((eq) => (
+			<EquipmentRow
+				key={eq.id}
+				equipment={eq}
+				quantity={quantities[eq.id]}
+				// Removing is always allowed, even with a negative score.
+				canDecrease={quantities[eq.id] > 0}
+				canIncrease={canAddOptional && quantities[eq.id] < getEffectiveMax(eq)}
+				handleQuantityChange={handleQuantityChange}
+				formDisabled={formDisabled}
+			/>
+		));
 	}
 
 	return (
@@ -305,32 +267,25 @@ function ReservationEdit({ user }) {
 				Modify reservation — {formatName(reservation.facilityTypeName)} (
 				{reservation.facilityCode})
 			</h1>
-			{errorAlert}
-			{negativeScoreWarning}
-			<Table bordered hover>
-				<thead>
-					<tr>
-						<th>Equipment</th>
-						<th>Type</th>
-						<th>Quantity</th>
-					</tr>
-				</thead>
-				<tbody>
-					{/* Mandatory equipment: fixed, cannot be modified here */}
-					{mandatory.map((eq) => renderMandatoryRow(eq, quantities[eq.id]))}
 
-					{/* Optional equipment: editable, subject to the score rule above */}
-					{optional.map((eq) =>
-						renderOptionalRow(
-							eq,
-							quantities[eq.id],
-							canAddOptional,
-							handleQuantityChange,
-							formDisabled,
-						),
-					)}
-				</tbody>
-			</Table>
+			{negativeScoreAlert}
+
+			<Card className="p-3 mb-4">
+				<h2 className="h5">Equipment</h2>
+				<p className="text-muted small mb-3">
+					The mandatory equipment cannot be changed. Use the + and - buttons to
+					adjust the optional one.
+				</p>
+
+				<hr />
+
+				<p className="text-muted small mb-2">Mandatory</p>
+				{mandatoryContent}
+
+				<p className="text-muted small mb-2 mt-3">Optional</p>
+				{optionalContent}
+			</Card>
+
 			<Button
 				variant="success"
 				type="button"
@@ -338,10 +293,11 @@ function ReservationEdit({ user }) {
 				disabled={formDisabled}
 			>
 				{formDisabled ? "Saving..." : "Save changes"}
-			</Button>{" "}
+			</Button>
 			<Button
 				variant="secondary"
 				type="button"
+				className="ms-2"
 				onClick={() => navigate("/reservations")}
 				disabled={formDisabled}
 			>

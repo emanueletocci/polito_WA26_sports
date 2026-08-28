@@ -1,65 +1,86 @@
 import { Table, Badge } from "react-bootstrap";
-import { formatName } from "../utils";
+
+import { formatName } from "../utils.js";
+
+/**
+ * EquipmentRow
+ *
+ * INPUT (props, passed as a single object):
+ * - equipment: one equipment object
+ *   { id, name, facilityTypeName, availableQuantity, totalQuantity }
+ *
+ * OUTPUT (return value):
+ * - JSX: one <tr> describing this equipment, with a coloured badge showing
+ *   whether it can still be rented
+ */
+function EquipmentRow(props) {
+	const equipment = props.equipment;
+
+	// getStockStatus is called only ONCE per row, and its result is stored.
+	const status = getStockStatus(equipment.availableQuantity);
+
+	return (
+		<tr>
+			<td>{formatName(equipment.name)}</td>
+			<td>{formatName(equipment.facilityTypeName)}</td>
+			<td>{equipment.availableQuantity}</td>
+			<td>{equipment.totalQuantity}</td>
+			<td>
+				<Badge bg={status.color}>{status.label}</Badge>
+			</td>
+		</tr>
+	);
+}
 
 /**
  * EquipmentTable
  *
  * INPUT (props, passed as a single object):
- * - equipmentList: array of equipment objects, each shaped like:
+ * - equipmentList: array of equipment objects, each shaped like
  *   { id, name, facilityTypeName, availableQuantity, totalQuantity }
  *
  * OUTPUT (return value):
- * - JSX: a bordered, hoverable table listing every equipment item,
- *   one row per item, with a colored Badge showing its stock state
+ * - JSX: a table with one row per equipment type, or a placeholder message when
+ *   the list is empty (e.g. while it is still being loaded)
  */
-function EquipmentTable({ equipmentList }) {
-	return (
-		<>
-			<Table bordered hover>
-				<thead>
-					<tr>
-						<th>Equipment</th>
-						<th>Type</th>
-						<th>Available</th>
-						<th>Total</th>
-						<th>State</th>
-					</tr>
-				</thead>
-				<tbody>
-					{/* One <tr> per equipment item in the list */}
-					{equipmentList.map((eq) => {
-						// Call getStockStatus only ONCE per row, and store the result
-						let status = getStockStatus(eq.availableQuantity);
+function EquipmentTable(props) {
+	// What to show when there is nothing to display is decided before the return.
+	if (props.equipmentList.length === 0) {
+		return <p className="text-muted">No equipment to show.</p>;
+	}
 
-						return (
-							<tr key={eq.id}>
-								<td>{formatName(eq.name)}</td>
-								<td>{formatName(eq.facilityTypeName)}</td>
-								<td>{eq.availableQuantity}</td>
-								<td>{eq.totalQuantity}</td>
-								<td>
-									<Badge bg={status.color}>{status.label}</Badge>
-								</td>
-							</tr>
-						);
-					})}
-				</tbody>
-			</Table>
-		</>
+	return (
+		<Table bordered hover>
+			<thead>
+				<tr>
+					<th>Equipment</th>
+					<th>Facility type</th>
+					<th>Available</th>
+					<th>Total</th>
+					<th>State</th>
+				</tr>
+			</thead>
+			<tbody>
+				{/* One row per equipment type */}
+				{props.equipmentList.map((eq) => (
+					<EquipmentRow key={eq.id} equipment={eq} />
+				))}
+			</tbody>
+		</Table>
 	);
 }
 
 /**
  * getStockStatus
  *
- * INPUT:
- * - availableQuantity: number, how many units of this equipment are currently available
+ * INPUT (params, positional):
+ * - availableQuantity: number, how many units of this equipment are available
  *
  * OUTPUT (return value):
  * - object { color, label }:
- *   - color: string, a react-bootstrap variant name used for the Badge background
- *     ("success" = green, "danger" = red)
- *   - label: string, the text displayed inside the Badge ("Available" or "Out of stock")
+ *   - color: string, the name of a react-bootstrap variant used as the
+ *     background of the badge ("success" = green, "danger" = red)
+ *   - label: string, the text shown inside the badge
  */
 function getStockStatus(availableQuantity) {
 	if (availableQuantity > 0) {

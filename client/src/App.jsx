@@ -5,7 +5,7 @@ import "./App.css";
 import { useState, useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router";
 
-import Layout from "./components/Layout.jsx";
+import Layout, { NotFound } from "./components/Layout.jsx";
 import Home from "./components/Home.jsx";
 import { LoginForm, TotpForm } from "./components/Auth.jsx";
 import Reservations from "./components/Reservations.jsx";
@@ -15,8 +15,13 @@ import ReservationEdit from "./components/ReservationEdit.jsx";
 import API from "./API.js";
 
 /**
+ * App
+ *
+ * INPUT: none (this is the root component of the application)
+ *
  * OUTPUT (return value):
- * - the full set of application routes (<Routes>), with authentication state props (loggedIn, loggedInTotp, user)
+ * - the full set of application routes (<Routes>), with the authentication state
+ *   (loggedIn, loggedInTotp, user) and the feedback message shared with the pages
  */
 function App() {
 	// loggedIn: whether the user has a valid session (passed username/password)
@@ -26,6 +31,14 @@ function App() {
 	const [loggedInTotp, setLoggedInTotp] = useState(false);
 
 	const [user, setUser] = useState(null);
+
+	// message: the feedback shown to the user after an operation, as an object
+	// { text, type } where type is a react-bootstrap Alert variant
+	// ("success" for a completed operation, "danger" for a failure).
+	// null means "nothing to show".
+	// NB: only the last message is kept. A more complex application would need a
+	// queue of messages.
+	const [message, setMessage] = useState(null);
 
 	// On first mount, check whether a session already exists server-side
 	// (e.g. the browser still has a valid session cookie from a previous visit).
@@ -44,24 +57,59 @@ function App() {
 	}, []);
 
 	/**
-	 * Handlss the login process.
-	 * It requires a username and a password inside a "credentials" object.
+	 * Shows a green confirmation message to the user.
 	 *
-	 * INPUT (params):
+	 * INPUT (params, positional):
+	 * - text: string, the message to display
+	 *
+	 * OUTPUT (return value):
+	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "message" state,
+	 *   which makes the Alert appear inside the Layout.
+	 */
+	const showSuccess = (text) => {
+		setMessage({ text: text, type: "success" });
+	};
+
+	/**
+	 * Shows a red error message to the user, extracting the text from whatever the
+	 * failed API call rejected with.
+	 *
+	 * INPUT (params, positional):
+	 * - err: the rejection value. It can be an object { error: <message> }, an
+	 *   array of express-validator errors, a plain string, or something unknown.
+	 *
+	 * OUTPUT (return value):
+	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "message" state.
+	 */
+	const handleErrors = (err) => {
+		let text = "";
+		if (err.error) text = err.error;
+		else if (Array.isArray(err) && err[0] && err[0].msg)
+			text = err[0].msg + " : " + err[0].path;
+		else if (typeof err === "string") text = String(err);
+		else text = "Unknown Error";
+		setMessage({ text: text, type: "danger" });
+	};
+
+	/**
+	 * Handles the login process.
+	 * It requires an email and a password inside a "credentials" object.
+	 *
+	 * INPUT (params, positional):
 	 * - credentials: object { email, password }
 	 *
 	 * OUTPUT (return value):
 	 * - none (undefined) on success: updates user/loggedIn state as a side effect.
-	 * - on failure: does NOT swallow the error, it re-throws it (after logging it),
-	 *   so that the caller (LoginForm) can catch it and display it to the user.
+	 * - on failure: does NOT swallow the error, it re-throws it, so that the caller
+	 *   (LoginForm) can catch it and display it next to the form.
 	 */
 	const handleLogin = async (credentials) => {
 		try {
 			const user = await API.logIn(credentials);
 			setUser(user);
 			setLoggedIn(true);
+			setMessage(null); // a new session starts with no leftover message
 		} catch (err) {
-			console.error(err);
 			// error is handled and visualized in the login form, do not manage error, throw it
 			throw err;
 		}
@@ -70,44 +118,52 @@ function App() {
 	/**
 	 * Handles the logout process.
 	 *
+	 * INPUT: none
+	 *
 	 * OUTPUT (return value):
 	 * - none (undefined). Its job is a SIDE EFFECT: it calls the API to destroy
-	 *   the session, then resets loggedIn/loggedInTotp/user regardless of
+	 *   the session, then resets loggedIn/loggedInTotp/user/message regardless of
 	 *   whether the API call succeeded or failed.
 	 */
 	const handleLogout = async () => {
 		try {
 			await API.logOut();
 		} catch (err) {
-			// Cannot do anything more if logout fails: just avoid uncaught rejected promise
-			console.error(err);
+			// Cannot do anything more if logout fails: just avoid an uncaught rejected promise
+			handleErrors(err);
 		} finally {
 			setLoggedIn(false);
 			setLoggedInTotp(false);
 			setUser(null);
+			setMessage(null);
 		}
 	};
 
 	/**
 	 * Re-fetches the current user's info from the server (rehydrating), so that
-	 * client-side state (e.g. the score shown in the navbar) reflects any change
-	 * caused by an action performed elsewhere (e.g. deleting a reservation).
+	 * the client state (e.g. the score shown in the navbar) reflects a change
+	 * caused by an operation performed elsewhere (e.g. deleting a reservation,
+	 * or the score reset after a TOTP login).
 	 *
+	 * INPUT: none
+	 *
+	 * OUTPUT (return value):
+	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "user" state.
 	 */
 	const refreshUserInfo = async () => {
 		try {
 			const updatedUser = await API.getUserInfo();
 			setUser(updatedUser);
 		} catch (err) {
-			console.error(err);
+			handleErrors(err);
 		}
 	};
 
 	return (
 		<Routes>
 			{/*
-				Top-level route "/": renders Layout (navbar + <Outlet />) as the
-				shared shell for every nested route below.
+				Top-level route "/": renders Layout (navbar + message + <Outlet />) as
+				the shared shell for every nested route below.
 			*/}
 			<Route
 				path="/"
@@ -117,23 +173,34 @@ function App() {
 						user={user}
 						loggedInTotp={loggedInTotp}
 						logout={handleLogout}
+						message={message}
+						setMessage={setMessage}
 					/>
 				}
 			>
 				{/* index route: what renders at exactly "/" inside the Layout */}
-				<Route index element={<Home loggedIn={loggedIn} />} />
+				<Route
+					index
+					element={<Home handleErrors={handleErrors} loggedIn={loggedIn} />}
+				/>
 
 				{/*
 					"reservations" and "book" are protected routes: only accessible
 					if loggedIn is true, otherwise the user is redirected to "/login".
+					NB: this is only a convenience for the user, the real protection is
+					on the server, where every API checks the session.
 				*/}
 				<Route
 					path="reservations"
 					element={
 						loggedIn ? (
-							<Reservations refreshUserInfo={refreshUserInfo} />
+							<Reservations
+								refreshUserInfo={refreshUserInfo}
+								showSuccess={showSuccess}
+								handleErrors={handleErrors}
+							/>
 						) : (
-							<Navigate to="/login" />
+							<Navigate replace to="/login" />
 						)
 					}
 				/>
@@ -141,16 +208,33 @@ function App() {
 					path="reservations/:reservationId/edit"
 					element={
 						loggedIn ? (
-							<ReservationEdit user={user} />
+							<ReservationEdit
+								user={user}
+								showSuccess={showSuccess}
+								handleErrors={handleErrors}
+							/>
 						) : (
-							<Navigate to="/login" />
+							<Navigate replace to="/login" />
 						)
 					}
 				/>
 				<Route
 					path="book"
-					element={loggedIn ? <Book /> : <Navigate to="/login" />}
+					element={
+						loggedIn ? (
+							<Book
+								user={user}
+								showSuccess={showSuccess}
+								handleErrors={handleErrors}
+							/>
+						) : (
+							<Navigate replace to="/login" />
+						)
+					}
 				/>
+
+				{/* Any other URL under "/": show a page with a link back to the home */}
+				<Route path="*" element={<NotFound />} />
 			</Route>
 
 			{/*
@@ -169,6 +253,7 @@ function App() {
 						setLoggedInTotp={setLoggedInTotp}
 						setLoggedIn={setLoggedIn}
 						refreshUserInfo={refreshUserInfo}
+						showSuccess={showSuccess}
 					/>
 				}
 			/>
@@ -179,8 +264,8 @@ function App() {
 /**
  * LoginWithTotp
  *
- * INPUT (props):
- * - props.loggedIn: boolean, whether username/password have already been verified
+ * INPUT (props, passed as a single object):
+ * - props.loggedIn: boolean, whether email/password have already been verified
  * - props.user: object, current user info
  * - props.loggedInTotp: boolean, whether the TOTP step has already been completed
  * - props.login: function(credentials), performs the login (passed to LoginForm)
@@ -188,12 +273,13 @@ function App() {
  * - props.setLoggedInTotp: function(boolean), state setter called by TotpForm
  *   once the TOTP code is verified successfully
  * - props.refreshUserInfo: function, re-fetches user info (passed to TotpForm)
+ * - props.showSuccess: function(text), shows a confirmation message
  *
  * OUTPUT (return value):
- * - Onx of three possible screens, depending on the nested if/else logic:
+ * - one of three possible screens, depending on the nested if/else logic:
  *   - <Navigate to="/"> if the user is already fully authenticated
- *     (logged in, and either TOTP is not required, or it's already verified)
- *   - <TotpForm> if the user is logged in, has 2FA enabled, but hasn't
+ *     (logged in, and either TOTP is not required, or it is already verified)
+ *   - <TotpForm> if the user is logged in, has 2FA enabled, but has not
  *     completed the TOTP step yet
  *   - <LoginForm> if the user is not logged in at all yet
  */
@@ -210,15 +296,16 @@ function LoginWithTotp(props) {
 						totpSuccessful={() => props.setLoggedInTotp(true)}
 						setLoggedIn={props.setLoggedIn}
 						refreshUserInfo={props.refreshUserInfo}
+						showSuccess={props.showSuccess}
 					/>
 				);
 			}
 		} else {
-			// Logged in, but this user doesn't have 2FA enabled at all: go home.
+			// Logged in, but this user does not have 2FA enabled at all: go home.
 			return <Navigate replace to="/" />;
 		}
 	} else {
-		// Not logged in yet: show the username/password login form.
+		// Not logged in yet: show the email/password login form.
 		return <LoginForm login={props.login} />;
 	}
 }
