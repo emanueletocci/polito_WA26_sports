@@ -1,0 +1,471 @@
+// -----------------------------------------------------------------------------
+// UTILITY FUNCTIONS
+// -----------------------------------------------------------------------------
+
+/* Utility functions shared by the API routes of index.mjs.
+ * They are kept in a separate module to keep index.mjs focused on the routes:
+ * here there is the business logic (validation of the requested equipment,
+ * choice of the facility, taking/giving back the equipment) and a few small
+ * formatting helpers.
+ */
+
+import dayjs from "dayjs";
+
+import reservationDao from "./dao-reservations.mjs";
+import facilityDao from "./dao-facilities.mjs";
+
+// A user cannot book again a facility of a type they have just released
+// before this amount of seconds has passed (requirement of the exam text).
+const REBOOKING_COOLDOWN_SECONDS = 30;
+
+/**
+ * Builds the user information that is safe to send to the client (no password
+ * hash, no salt, no TOTP secret).
+ *
+ * INPUT (params, positional):
+ * - req: the request object (req.user comes from the session, req.session.method
+ *   tells whether the TOTP step has been completed)
+ *
+ * OUTPUT (return value):
+ * - object { id, email, name, surname, score, hasTotpEnabled, isTotpVerified }
+ */
+function clientUserInfo(req) {
+	const user = req.user;
+	return {
+		id: user.id,
+		email: user.email,
+		name: user.name,
+		surname: user.surname,
+		score: user.score,
+		hasTotpEnabled: user.totpSecret ? true : false,
+		isTotpVerified: req.session.method === "totp",
+	};
+}
+
+/**
+ * Formats the errors produced by express-validator as strings.
+ *
+ * INPUT (params, destructured from the error object):
+ * - location, msg, param, value, nestedErrors
+ *
+ * OUTPUT (return value):
+ * - string describing the error, e.g. "body[rating]: Invalid value"
+ */
+function errorFormatter({ location, msg, param, value, nestedErrors }) {
+	return `${location}[${param}]: ${msg}`;
+}
+
+/**
+ * Turns a snake_case name into Title Case: replaces underscores with spaces,
+ * then capitalizes the first letter of every word. Used to build readable
+ * error messages (e.g. "table_tennis_racket" -> "Table Tennis Racket").
+ *
+ * INPUT (params, positional):
+ * - name: string, the name as stored in the DB
+ *
+ * OUTPUT (return value):
+ * - string, the same name in Title Case
+ */
+function formatName(name) {
+	// Splitting the string on every underscore
+	const words = name.split("_");
+	const capitalizedWords = words.map(
+		(word) => word.charAt(0).toUpperCase() + word.slice(1),
+	);
+	return capitalizedWords.join(" ");
+}
+
+/**
+ * Chooses the facility to be booked, either the one explicitly selected by the
+ * user or, if none was selected, one automatically assigned by the system.
+ * NOTE: this only selects a CANDIDATE. The facility is actually taken (in a
+ * race-condition-safe way) by facilityDao.bookFacilityIfFree.
+ *
+ * INPUT (params, positional):
+ * - facilityTypeId: number, the id of the requested facility type
+ * - facilityCode: string or undefined, the code chosen by the user (undefined
+ *   means "automatic assignment")
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to { code } with the code of the chosen facility,
+ *   or to { error: <message> } if no suitable facility is available
+ */
+async function resolveFacility(facilityTypeId, facilityCode) {
+	// Case 1: the user picked a specific facility.
+	if (facilityCode) {
+		const facility = await facilityDao.getFacilityByCode(facilityCode);
+		if (
+			facility.error || // no facility with this code
+			facility.isBooked || // facility exists but is already taken
+			facility.facilityTypeId !== facilityTypeId // wrong type for this code
+		) {
+			return {
+				error: "Not enough facilities: the selected facility is not available.",
+			};
+		}
+		return { code: facilityCode };
+	}
+	// Case 2: no code given, automatically assign any free facility of the requested type.
+	const free = await facilityDao.getOneFreeFacilityByType(facilityTypeId);
+	if (!free) {
+		return { error: "Not enough facilities of this type." };
+	}
+	return { code: free.code };
+}
+
+/**
+ * Checks whether the 30-second rebooking cooldown blocks this request.
+ *
+ * INPUT (params, positional):
+ * - userId: the id of the user making the request
+ * - facilityTypeId: the id of the facility type they want to book
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to true if the user released a facility of this type
+ *   less than REBOOKING_COOLDOWN_SECONDS ago, false otherwise
+ */
+async function isRebookingTooEarly(userId, facilityTypeId) {
+	// When did this user last release a facility of this type?
+	const lastRelease = await reservationDao.getLastReleaseTime(
+		userId,
+		facilityTypeId,
+	);
+	// No previous release found, so there is no cooldown to wait for.
+	if (!lastRelease) return false;
+	const secondsPassed = dayjs().diff(dayjs(lastRelease), "second");
+	// Too early if not enough time has passed since the last release.
+	return secondsPassed < REBOOKING_COOLDOWN_SECONDS;
+}
+
+/**
+ * Returns the quantity requested for a given equipment id.
+ *
+ * INPUT (params, positional):
+ * - requested: array of { equipmentId, quantity } coming from the request body
+ *   (may be undefined)
+ * - equipmentId: the id of the equipment to look for
+ *
+ * OUTPUT (return value):
+ * - number: the requested quantity, or 0 if that equipment was not requested at all
+ */
+function getRequestedEquipmentQuantity(requested, equipmentId) {
+	if (!requested) return 0;
+	const line = requested.find((r) => r.equipmentId === equipmentId);
+	return line ? line.quantity : 0;
+}
+
+/**
+ * Validates the equipment requested when CREATING a new reservation. It is a
+ * pure, read-only function: it never writes to the DB.
+ *
+ * INPUT (params, positional):
+ * - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId),
+ *   i.e. [{ id, name, totalQuantity, availableQuantity, minQuantity }, ...]
+ * - requested: array from req.body.equipment, i.e. [{ equipmentId, quantity }, ...]
+ * - userScore: number, the score of the user (a negative score allows only the
+ *   mandatory minimum quantities)
+ *
+ * OUTPUT (return value):
+ * - { error: <message> } on the first violation found, or
+ * - { lines: [{ equipmentId, name, quantity }, ...] } with the equipment to be
+ *   taken and stored (only the lines with quantity greater than 0)
+ */
+function validateEquipmentRequest(rules, requested, userScore) {
+	// The ids of the equipment that belongs to this facility type
+	const allowedIds = rules.map((r) => r.id);
+
+	// Check for equipment that does not belong to this facility type
+	const hasUnknownEquipment = requested.some(
+		(e) => !allowedIds.includes(e.equipmentId),
+	);
+	if (hasUnknownEquipment) {
+		return {
+			error: "Requested equipment is not valid for this facility type.",
+		};
+	}
+
+	for (const rule of rules) {
+		const requestedQuantity = getRequestedEquipmentQuantity(requested, rule.id);
+
+		if (rule.minQuantity > 0) {
+			// Case 1: mandatory equipment
+			if (requestedQuantity < rule.minQuantity) {
+				return {
+					error: `Requested quantity for ${formatName(rule.name)} is below the mandatory minimum of ${rule.minQuantity}.`,
+				};
+			}
+			if (userScore < 0 && requestedQuantity > rule.minQuantity) {
+				return {
+					error: `Your score is negative: you cannot request more than the mandatory minimum of ${formatName(rule.name)}.`,
+				};
+			}
+		} else {
+			// Case 2: optional equipment
+			if (userScore < 0 && requestedQuantity > 0) {
+				return {
+					error:
+						"Your score is negative: you cannot request optional equipment.",
+				};
+			}
+		}
+
+		// Availability check against the current stock. This is an early check
+		// that produces a clear message: the binding one is the atomic decrement
+		// performed later by reserveEquipment.
+		if (requestedQuantity > rule.availableQuantity) {
+			return {
+				error: `Not enough equipment of type ${formatName(rule.name)} available.`,
+			};
+		}
+	}
+
+	// All the checks passed: build the lines to be stored, keeping only the
+	// equipment actually requested (quantity greater than 0).
+	const lines = rules
+		.map((rule) => ({
+			equipmentId: rule.id,
+			name: rule.name,
+			quantity: getRequestedEquipmentQuantity(requested, rule.id),
+		}))
+		.filter((line) => line.quantity > 0);
+
+	return { lines };
+}
+
+/**
+ * Validates the equipment changes requested when MODIFYING an existing
+ * reservation. It is a pure, read-only function: it never writes to the DB, so
+ * that a violation found on the last item cannot leave the previous ones
+ * already applied.
+ *
+ * INPUT (params, positional):
+ * - currentRents: array from reservationDao.getRentsByReservation(reservationId),
+ *   i.e. what is rented by this reservation right now
+ * - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
+ * - requestedEquipment: array from req.body.equipment, i.e. [{ equipmentId, quantity }, ...]
+ * - userScore: number, the score of the user (a negative score allows removals only)
+ *
+ * OUTPUT (return value):
+ * - { error: <message> } on the first violation found, or
+ * - { changes: [{ equipmentId, name, currentQuantity, newQuantity, delta }, ...] }
+ *   containing only the equipment whose quantity actually changes
+ */
+function validateEquipmentChanges(
+	currentRents,
+	rules,
+	requestedEquipment,
+	userScore,
+) {
+	// Reject any equipment that does not belong to this reservation's facility type.
+	const allowedIds = rules.map((r) => r.id);
+	const hasUnknownEquipment = requestedEquipment.some(
+		(e) => !allowedIds.includes(e.equipmentId),
+	);
+	if (hasUnknownEquipment) {
+		return {
+			error: "Requested equipment is not valid for this facility type.",
+		};
+	}
+
+	const changes = [];
+
+	// The FULL set of rules is examined (not only the request body), so that an
+	// item missing from the request is correctly treated as "reduced to 0"
+	// instead of being ignored.
+	for (const rule of rules) {
+		const currentLine = currentRents.find((r) => r.equipmentId === rule.id);
+		const currentQuantity = currentLine ? currentLine.quantity : 0;
+		const newQuantity = getRequestedEquipmentQuantity(
+			requestedEquipment,
+			rule.id,
+		);
+
+		if (newQuantity === currentQuantity) continue; // nothing changes for this item
+
+		// Rule 1: mandatory equipment can never be modified.
+		if (rule.minQuantity > 0) {
+			return {
+				error: `${formatName(rule.name)} is mandatory and cannot be modified.`,
+			};
+		}
+
+		// Rule 2: a negative score forbids any increase, only removals are allowed.
+		if (userScore < 0 && newQuantity > currentQuantity) {
+			return {
+				error:
+					"Your score is negative: you can only remove equipment, not add it.",
+			};
+		}
+
+		// Early availability check for the additional units (the binding one is
+		// the atomic decrement performed by reserveEquipment).
+		const delta = newQuantity - currentQuantity;
+		if (delta > rule.availableQuantity) {
+			return {
+				error: `Not enough equipment of type ${formatName(rule.name)} available.`,
+			};
+		}
+
+		changes.push({
+			equipmentId: rule.id,
+			name: rule.name,
+			currentQuantity: currentQuantity,
+			newQuantity: newQuantity,
+			delta: delta,
+		});
+	}
+
+	return { changes: changes };
+}
+
+/**
+ * Applies to the DB the changes already validated by validateEquipmentChanges:
+ * updates the availability of the equipment and the rent lines of the reservation.
+ *
+ * INPUT (params, positional):
+ * - reservationId: the id of the reservation being modified
+ * - changes: array from validateEquipmentChanges, i.e.
+ *   [{ equipmentId, name, currentQuantity, newQuantity, delta }, ...]
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to {} on success, or to { error: <message> } if some of
+ *   the additional units are no longer available (in that case nothing is
+ *   changed at all: the units taken in the meantime are given back)
+ */
+async function applyEquipmentChanges(reservationId, changes) {
+	// The units to be added are taken FIRST: if they are no longer available the
+	// reservation is left exactly as it was, with no partial modification.
+	const linesToTake = changes
+		.filter((c) => c.delta > 0)
+		.map((c) => ({
+			equipmentId: c.equipmentId,
+			name: c.name,
+			quantity: c.delta,
+		}));
+
+	const reserveResult = await reserveEquipment(linesToTake);
+	if (reserveResult.error) {
+		return reserveResult;
+	}
+
+	// The removed units are given back to the pool.
+	const linesToGiveBack = changes
+		.filter((c) => c.delta < 0)
+		.map((c) => ({ equipmentId: c.equipmentId, quantity: -c.delta }));
+	await releaseEquipment(linesToGiveBack);
+
+	// Finally the rent lines are aligned with the new quantities.
+	for (const change of changes) {
+		if (change.currentQuantity === 0) {
+			await reservationDao.addRent(
+				reservationId,
+				change.equipmentId,
+				change.newQuantity,
+			);
+		} else if (change.newQuantity === 0) {
+			await reservationDao.deleteRent(reservationId, change.equipmentId);
+		} else {
+			await reservationDao.updateRentQuantity(
+				reservationId,
+				change.equipmentId,
+				change.newQuantity,
+			);
+		}
+	}
+
+	return {};
+}
+
+/**
+ * Takes the requested equipment from the common pool, decrementing its
+ * availability. Every decrement is an atomic check-and-update performed by the
+ * DAO (the quantity is decremented only if it is still available), therefore
+ * this is the real protection against two clients taking the same last unit.
+ *
+ * INPUT (params, positional):
+ * - lines: array of { equipmentId, name, quantity } to be taken
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to {} if all the lines have been taken, or to
+ *   { error: <message> } if one of them was not available any more. In the
+ *   latter case the lines already taken are given back, so nothing is left
+ *   half-decremented.
+ */
+async function reserveEquipment(lines) {
+	const alreadyTaken = [];
+
+	for (const line of lines) {
+		const result = await facilityDao.decrementEquipmentAvailability(
+			line.equipmentId,
+			line.quantity,
+		);
+		if (result.error) {
+			await releaseEquipment(alreadyTaken);
+			return {
+				error: `Not enough equipment of type ${formatName(line.name)} available.`,
+			};
+		}
+		alreadyTaken.push(line);
+	}
+
+	return {};
+}
+
+/**
+ * Gives equipment back to the common pool, incrementing its availability (used
+ * when a reservation is deleted or reduced, and to undo a failed operation).
+ *
+ * INPUT (params, positional):
+ * - lines: array of { equipmentId, quantity } to be given back
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to undefined (its job is a SIDE EFFECT on the DB)
+ */
+async function releaseEquipment(lines) {
+	for (const line of lines) {
+		await facilityDao.incrementEquipmentAvailability(
+			line.equipmentId,
+			line.quantity,
+		);
+	}
+}
+
+/**
+ * Undoes a reservation creation that failed halfway because of a DB error, so
+ * that no facility and no equipment stays blocked without a valid reservation.
+ *
+ * INPUT (params, positional):
+ * - reservationId: the id of the reservation already created, or null
+ * - facilityCode: the code of the facility already booked, or null
+ * - lines: array of { equipmentId, quantity } already taken (possibly empty)
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to undefined (its job is a SIDE EFFECT on the DB). Any
+ *   error happening while undoing is only logged: the client is answered with
+ *   the original error anyway.
+ */
+async function rollbackReservationAttempt(reservationId, facilityCode, lines) {
+	try {
+		if (reservationId) await reservationDao.cancelReservation(reservationId);
+		if (facilityCode) await facilityDao.setFacilityBooked(facilityCode, false);
+		await releaseEquipment(lines);
+	} catch (err) {
+		console.error("Rollback failed:", err);
+	}
+}
+
+// Only the functions actually called by index.mjs are exported: formatName and
+// getRequestedEquipmentQuantity stay private to this module, because they are
+// just internal helpers of the validation functions above.
+export {
+	clientUserInfo,
+	errorFormatter,
+	resolveFacility,
+	isRebookingTooEarly,
+	validateEquipmentRequest,
+	validateEquipmentChanges,
+	applyEquipmentChanges,
+	reserveEquipment,
+	releaseEquipment,
+	rollbackReservationAttempt,
+};
