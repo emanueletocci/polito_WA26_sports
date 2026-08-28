@@ -3,7 +3,7 @@
 // -----------------------------------------------------------------------------
 
 /**
- * Groups a flat array of facilities by facilityTypeId. For each type,
+ * Groups an array of facilities by facilityTypeId. For each type,
  * computes the total count (free + booked) and collects only the codes
  * of the FREE facilities, to be shown as selectable badges.
  */

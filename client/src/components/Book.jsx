@@ -34,7 +34,7 @@ import { formatName } from "../utils.js";
  * - formDisabled: boolean, true while the form is submitting (disables all inputs)
  *
  * OUTPUT (return value):
- * - JSX: a <Card> containing the "1. Facility" section of the form
+ * - a <Card> containing the "1. Facility" section of the form
  *   (type dropdown, manual/automatic radio buttons, and the list of free facilities)
  */
 function renderFacilitySelection({

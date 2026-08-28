@@ -1,7 +1,7 @@
 /*** Importing modules ***/
 import express from "express";
-import morgan from "morgan";
-import { check, validationResult } from "express-validator";
+import morgan from "morgan"; // logging middleware
+import { check, validationResult } from "express-validator"; // validation middleware
 import cors from "cors";
 
 /** Authentication-related imports **/
@@ -17,7 +17,8 @@ import facilityDao from "./dao-facilities.mjs";
 
 import dayjs from "dayjs";
 
-const responseDelay = 1000;
+// A user cannot book again a facility of a type they have just released
+// before this amount of seconds has passed.
 const REBOOKING_COOLDOWN_SECONDS = 30;
 
 /*** init express and set-up the middlewares ***/
@@ -54,8 +55,10 @@ passport.use(
 
 // Serializing in the session the user object given from LocalStrategy(verify).
 passport.serializeUser(function (user, callback) {
-	// only store the user id in the session just because the user object contains dynamic fields (score, lastTotpStep) that may change during the session.
-	// So, to avoid mismatches between the session and the DB, we only store the user id in the session and retrieve the full user object from the DB on every request.
+	// Only the user id is stored in the session, because the user object contains
+	// dynamic fields (score, lastTotpStep) that may change during the session.
+	// To avoid mismatches between the session and the DB, the full user object is
+	// retrieved from the DB on every request (see deserializeUser below).
 	callback(null, user.id);
 });
 
@@ -67,10 +70,6 @@ passport.deserializeUser(function (id, callback) {
 		.catch((err) => callback(err, null));
 });
 
-// Required for Passport to work correctly (was missing): initializes Passport's
-// internal state before any authenticate()/session middleware is used.
-app.use(passport.initialize());
-
 /** Creating the session */
 app.use(
 	session({
@@ -81,6 +80,19 @@ app.use(
 );
 app.use(passport.authenticate("session"));
 
+/**
+ * Verifies a TOTP code for a given user, with replay protection.
+ *
+ * INPUT (params, positional):
+ * - user: the user object taken from the session (needs totpSecret and lastTotpStep)
+ * - token: string, the 6-digit code sent by the client
+ *
+ * OUTPUT (return value):
+ * - true if the code is valid AND it has not been used before (its time step is
+ *   newer than the last one accepted for this user). As a side effect, in this
+ *   case user.lastTotpStep is updated in memory (the caller must persist it).
+ * - false if the code is invalid, expired, or already used (replay).
+ */
 function verifyTotpToken(user, token) {
 	const totp = new TOTP({
 		algorithm: "SHA1",
@@ -108,7 +120,7 @@ function verifyTotpToken(user, token) {
 
 	if (actualStep <= user.lastTotpStep) return false; // Reject replay or older step
 
-	// Accept: update last-used step (in-memory, will be persisted to DB by the caller)
+	// Accept: update last-used step (in memory, will be persisted to DB by the caller)
 	user.lastTotpStep = actualStep;
 	return true;
 }
@@ -121,11 +133,6 @@ const isLoggedIn = (req, res, next) => {
 	}
 	return res.status(401).json({ error: "Not authenticated" });
 };
-
-function isTotp(req, res, next) {
-	if (req.session.method === "totp") return next();
-	return res.status(401).json({ error: "Missing TOTP authentication" });
-}
 
 // -----------------------------------------------------------------------------
 // Auth APIs
@@ -153,34 +160,26 @@ app.post("/api/sessions", function (req, res, next) {
 
 // POST /api/login-totp
 // Second step of login: verifies the TOTP code for users who enabled 2FA.
-// Resets the user's score to 0, as required by the spec.
+// A successful verification also resets the user's score to 0
 app.post("/api/login-totp", isLoggedIn, async (req, res) => {
 	if (!req.user.totpSecret) {
-		console.log("TOTP not enabled for this user");
 		return res.status(400).json({ error: "Cannot authenticate with TOTP" });
 	}
+
 	const success = verifyTotpToken(req.user, req.body.code);
-	console.log(
-		"DEBUG: about to save lastTotpStep =",
-		req.user.lastTotpStep,
-		"for user",
-		req.user.id,
-	);
-	if (success) {
-		req.session.method = "totp";
-		try {
-			// Persist the consumed step (replay protection) and reset the score to 0
-			await userDao.updateLastTotpStep(req.user.id, req.user.lastTotpStep);
-			await userDao.resetScore(req.user.id);
-		} catch (err) {
-			console.log(err);
-			return res.status(503).json({ error: "Database error" });
-		}
-		return res.json({ otp: "authorized" });
-	} else {
-		console.log("Invalid or replayed TOTP code");
+	if (!success) {
 		return res.status(401).json({ error: "Cannot authenticate with TOTP" });
 	}
+
+	req.session.method = "totp";
+	try {
+		// Persist the consumed step (replay protection) and reset the score to 0
+		await userDao.updateLastTotpStep(req.user.id, req.user.lastTotpStep);
+		await userDao.resetScore(req.user.id);
+	} catch (err) {
+		return res.status(503).json({ error: "Database error" });
+	}
+	return res.json({ otp: "authorized" });
 });
 
 // GET /api/sessions/current
@@ -200,7 +199,7 @@ app.delete("/api/sessions/current", (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// Facilities & Equipment APIs (public, no login)
+// Facilities & Equipment APIs (public, no login required)
 // -----------------------------------------------------------------------------
 
 // GET /api/facilities
@@ -222,17 +221,20 @@ app.get("/api/facilities", async (req, res) => {
 });
 
 // GET /api/equipment
-// Optional query param: facilityTypeId (filters to equipment rules for that facility type,
-// including minQuantity). Without it, returns all equipment (public homepage).
+// Optional query param: facilityTypeId (returns only the equipment rules of that
+// facility type, including minQuantity). Without it, returns all the equipment
+// with its availability (public homepage).
 app.get("/api/equipment", async (req, res) => {
 	try {
-		const { facilityTypeId } = req.query;
 		let equipment;
 
-		if (facilityTypeId) {
-			equipment = await facilityDao.getEquipmentRulesForFacilityType(
-				Number(facilityTypeId),
-			);
+		if (req.query.facilityTypeId !== undefined) {
+			const facilityTypeId = Number(req.query.facilityTypeId);
+			if (!Number.isInteger(facilityTypeId) || facilityTypeId < 1) {
+				return res.status(422).json({ error: "Invalid facilityTypeId value" });
+			}
+			equipment =
+				await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
 		} else {
 			equipment = await facilityDao.getEquipment();
 		}
@@ -301,12 +303,10 @@ app.get(
 		try {
 			const reservation =
 				await reservationDao.getReservationById(reservationId);
-			if (reservation.error) return res.status(404).json(reservation);
 
-			// NEVER trust a userId coming from the client - always compare with
-			// req.user.id, which comes from the (server-side) session.
-			if (reservation.userId !== req.user.id) {
-				return res.status(403).json({ error: "Not authorized." });
+			// NEVER trust a userId coming from the client
+			if (reservation.error || reservation.userId !== req.user.id) {
+				return res.status(404).json({ error: "Reservation not found." });
 			}
 
 			const equipment =
@@ -320,8 +320,17 @@ app.get(
 );
 
 // POST /api/reservations
-// Creates a new reservation for the logged-in user, with optional equipment.
-// The request body must contain: facilityTypeId, optional facilityCode, and optional equipment array.
+// Creates a new reservation for the logged-in user, with its equipment.
+// The request body contains: facilityTypeId, an optional facilityCode (absent when
+// the facility is automatically assigned by the system), and the equipment array.
+//
+// The operations are performed in this exact order:
+//   1. read-only checks (cooldown, equipment rules, user score, facility choice);
+//   2. the equipment is currently taken from the pool
+//   3. the facility is actually booked
+//   4. the reservation and its rent lines are stored.
+// If a step fails, everything already taken in the previous steps is given back,
+// so that the DB is never left in an inconsistent state.
 app.post(
 	"/api/reservations",
 	isLoggedIn,
@@ -340,109 +349,135 @@ app.post(
 			return res.status(422).json(errors.errors);
 		}
 
-		// Extract the relevant fields from the request body - Destructuring syntax
-		const { facilityTypeId, facilityCode, equipment } = req.body;
+		// isInt() accepts also the string "3": the value is explicitly converted to
+		// a number, otherwise the strict comparisons below would always fail.
+		const facilityTypeId = Number(req.body.facilityTypeId);
+
+		// facilityCode is optional:
+		// - if it is present: the user is manually selecting the facility to book
+		// - if it is not present: the user is using the
+		const facilityCode = req.body.facilityCode;
+		const requestedEquipment = req.body.equipment;
+
+		// takenLines: the equipment lines whose availability has already been decremented.
+		// Empty until step 2 succeeds; emptied again as soon as the units are given back.
+		let takenLines = [];
+
+		// bookedFacilityCode: the code of the facility already marked as booked (is_booked = 1).
+		// null until step 3 succeeds; tells the rollback which facility must be set free again.
+		let bookedFacilityCode = null;
+
+		// createdReservationId: the id of the reservation row already inserted in the DB.
+		// null until step 4 succeeds; tells the rollback which reservation must be cancelled.
+		let createdReservationId = null;
 
 		try {
-			// Block if the user just released a facility of this type recently.
+			// READ-ONLY CHECKS, first check, then write on DB
+
+			// The user released a facility of this type less than 30 seconds ago.
 			if (await isRebookingTooEarly(req.user.id, facilityTypeId)) {
 				return res.status(422).json({
-					error: "Too early to reserve again for this facility type.",
+					error: "Too early to reserve again a facility of this type.",
 				});
 			}
 
-			// Pick the facility to book (direct choice or auto-assigned).
-			const facilityResult = await resolveFacility(
-				facilityTypeId,
-				facilityCode,
-			);
-
-			if (facilityResult.error) {
-				return res.status(422).json({ error: facilityResult.error });
-			}
-			const chosenFacilityCode = facilityResult.code;
-
-			// Check the requested equipment against the rules for this facility type.
-			// getEquipmentRulesForFacilityType returns an array of { id, name, totalQuantity, availableQuantity, minQuantity }
-			// eg. tennis:
-			// [
-			// {
-			//  id: 1,
-			//  name: 'tennis_racket',
-			//  totalQuantity: 8,
-			//  availableQuantity: 6,
-			//  minQuantity: 2
-			// },
-			// ...
-			// ]
-
-			// Retrieve the equipment rules for the requested facility type
+			// getEquipmentRulesForFacilityType returns an array of
+			// { id, name, totalQuantity, availableQuantity, minQuantity }, e.g. for tennis:
+			// [ { id: 1, name: 'tennis_racket', totalQuantity: 8, availableQuantity: 6, minQuantity: 2 }, ... ]
 			const rules =
 				await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
-			// Validate the requested equipment against the rules and the user's score
-			// (this is a pure, read-only check: it does NOT write to the DB yet).
+			if (rules.length === 0) {
+				return res
+					.status(422)
+					.json({ error: "The requested facility type does not exist." });
+			}
+
+			// Validate the requested equipment against the rules and the user's score.
 			const validation = validateEquipmentRequest(
 				rules,
-				equipment,
+				requestedEquipment,
 				req.user.score,
 			);
-
 			if (validation.error) {
 				return res.status(422).json({ error: validation.error });
 			}
 
-			// Only NOW, right before any DB write happens, attempt to actually book
-			// the facility - atomically. This is the real, race-condition-safe
-			// check: two concurrent requests targeting the same facility can never
-			// both succeed here, unlike the earlier resolveFacility lookup, which
-			// only picks a CANDIDATE and could be stale by the time we reach this
-			// point.
-			const bookResult =
-				await facilityDao.bookFacilityIfFree(chosenFacilityCode);
-			if (bookResult && bookResult.error) {
-				return res.status(422).json(bookResult);
+			// Pick the facility to book (direct choice or automatic assignment).
+			// This only selects a CANDIDATE: it is not a reservation yet.
+			const facilityResult = await resolveFacility(
+				facilityTypeId,
+				facilityCode,
+			);
+			if (facilityResult.error) {
+				return res.status(422).json({ error: facilityResult.error });
 			}
 
-			// Everything is valid: store the reservation...
-			const reservationId = await reservationDao.createReservation(
-				req.user.id,
-				chosenFacilityCode,
-			);
+			// TAKE THE EQUIPMENT
 
-			// update the equipment availability and store the rented equipment for this reservation
-			for (const line of validation.lines) {
+			// This is the real, race-condition-safe availability check: the quantity
+			// is decremented only if it is still available at that exact moment.
+			const reserveResult = await reserveEquipment(validation.lines);
+			if (reserveResult.error) {
+				return res.status(422).json(reserveResult);
+			}
+			takenLines = validation.lines;
+
+			// TAKE THE FACILITY
+
+			const bookResult = await facilityDao.bookFacilityIfFree(
+				facilityResult.code,
+			);
+			if (bookResult.error) {
+				// If somebody else booked this facility in the meantime: give the
+				// equipment back before reporting the failure.
+				await releaseEquipment(takenLines);
+				takenLines = [];
+				return res.status(422).json(bookResult);
+			}
+			bookedFacilityCode = facilityResult.code;
+
+			// STORE THE RESERVATION
+			createdReservationId = await reservationDao.createReservation(
+				req.user.id,
+				bookedFacilityCode,
+			);
+			for (const line of takenLines) {
 				await reservationDao.addRent(
-					reservationId,
-					line.equipmentId,
-					line.quantity,
-				);
-				await facilityDao.decrementEquipmentAvailability(
+					createdReservationId,
 					line.equipmentId,
 					line.quantity,
 				);
 			}
 
 			// Return the newly created reservation together with its equipment.
-			const created = await reservationDao.getReservationById(reservationId);
+			const created =
+				await reservationDao.getReservationById(createdReservationId);
 			const createdEquipment =
-				await reservationDao.getRentsByReservation(reservationId);
+				await reservationDao.getRentsByReservation(createdReservationId);
 			res.json({ ...created, equipment: createdEquipment });
 		} catch (err) {
 			console.error(err);
+			// A DB error occurred in the middle of the operation: give back
+			// everything that was already taken, so that no facility/equipment
+			// stays blocked without a valid reservation.
+			await rollbackReservationAttempt(
+				createdReservationId,
+				bookedFacilityCode,
+				takenLines,
+			);
 			res.status(500).json({ error: "Database error" });
 		}
 	},
 );
 
 // PUT /api/reservations/:id
-// Modifies the optional/extra equipment of an existing active reservation.
-// Requirements enforced here:
-// - Mandatory equipment can never be changed (must stay exactly as originally booked).
-// - If the user's score is negative, optional equipment quantities can only DECREASE,
-//   never increase (see forum clarification: removing is always allowed, adding is not).
-// - An item silently missing from req.body.equipment (compared to what is currently
-//   rented) is treated as "rSeduced to 0" - this is why we loop over the facility type's
-//   full "rules" list below, not just over the request body.
+// Modifies the equipment of an existing active reservation.
+// Rules enforced here:
+// - Mandatory equipment can never be changed (it must stay exactly as booked).
+// - If the user's score is negative, quantities can only DECREASE, never increase.
+// - An item missing from req.body.equipment is treated as "reduced to 0": this is
+//   why the whole "rules" list of the facility type is examined, and not only the
+//   request body.
 app.put(
 	"/api/reservations/:id",
 	isLoggedIn,
@@ -463,12 +498,10 @@ app.put(
 		try {
 			const reservation =
 				await reservationDao.getReservationById(reservationId);
-			if (reservation.error) return res.status(404).json(reservation);
 
-			// NEVER trust a userId coming from the client - always compare with
-			// req.user.id, which comes from the (server-side) session.
-			if (reservation.userId !== req.user.id) {
-				return res.status(403).json({ error: "Not authorized." });
+			// Existence and ownership are checked together (see GET above).
+			if (reservation.error || reservation.userId !== req.user.id) {
+				return res.status(404).json({ error: "Reservation not found." });
 			}
 
 			// Only an active reservation can be modified.
@@ -484,17 +517,23 @@ app.put(
 				reservation.facilityTypeId,
 			);
 
-			// Validate the two business rules (mandatory locked, negative score
-			// only allows removals) and apply the changes to the DB (availability
-			// + rents rows). Returns { error } on the first violation found.
-			const applyResult = await applyEquipmentChanges(
-				reservationId,
+			// FIRST all the checks are performed (read-only)...
+			const validation = validateEquipmentChanges(
 				currentRents,
 				rules,
 				req.body.equipment,
 				req.user.score,
 			);
-			if (applyResult && applyResult.error) {
+			if (validation.error) {
+				return res.status(422).json({ error: validation.error });
+			}
+
+			// ...and ONLY AFTER that the changes are written to the DB.
+			const applyResult = await applyEquipmentChanges(
+				reservationId,
+				validation.changes,
+			);
+			if (applyResult.error) {
 				return res.status(422).json(applyResult);
 			}
 
@@ -525,35 +564,35 @@ app.delete(
 		const reservationId = Number(req.params.id);
 
 		try {
-			// retrieve the reservation to be cancelled
+			// retrieve the reservation to be cancelled: does it exist, and does it
+			// belong to THIS user?
 			const reservation =
 				await reservationDao.getReservationById(reservationId);
-
-			// check: exists? belongs to THIS user? still active?
-			if (
-				reservation.error ||
-				reservation.userId !== req.user.id ||
-				reservation.status !== "active"
-			) {
+			if (reservation.error || reservation.userId !== req.user.id) {
 				return res.status(404).json({ error: "Reservation not found." });
 			}
 
-			// retrieve the rented equipment before cancelling, so we know how much to give back
+			// retrieve the rented equipment BEFORE cancelling, so we know how much to give back
 			const rents = await reservationDao.getRentsByReservation(reservationId);
 
-			// mark the reservation as cancelled (this also records released_at)
-			await reservationDao.cancelReservation(reservationId);
+			// Mark the reservation as cancelled (this also records released_at).
+			// The DAO only updates a reservation that is still 'active', in the very
+			// same SQL statement: two concurrent DELETE requests on the same
+			// reservation can never both succeed, so the equipment is given back
+			// once and the score is decremented once.
+			const cancelResult =
+				await reservationDao.cancelReservation(reservationId);
+			if (cancelResult.error) {
+				return res
+					.status(422)
+					.json({ error: "This reservation is not active." });
+			}
 
 			// restore the facility to "free"
 			await facilityDao.setFacilityBooked(reservation.facilityCode, false);
 
 			// restore the availability of every equipment type that was rented
-			for (const rent of rents) {
-				await facilityDao.incrementEquipmentAvailability(
-					rent.equipmentId,
-					rent.quantity,
-				);
-			}
+			await releaseEquipment(rents);
 
 			// decrement the user's score
 			await userDao.decrementScore(req.user.id);
@@ -567,21 +606,20 @@ app.delete(
 );
 
 // -----------------------------------------------------------------------------
-// Utiity functions
+// Utility functions
 // -----------------------------------------------------------------------------
 
-// Turns a snake_case name into Title Case: replaces underscores with spaces,
-// then capitalizes the first letter of every word.
-// Example: "table_tennis" -> "Table Tennis", "knee_pads" -> "Knee Pads".
-function formatName(name) {
-	// Splitting the string into 2 different substrings if _ is present
-	const words = name.split("_");
-	const capitalizedWords = words.map(
-		(word) => word.charAt(0).toUpperCase() + word.slice(1),
-	);
-	return capitalizedWords.join(" ");
-}
-
+/**
+ * Builds the user information that is safe to send to the client (no password
+ * hash, no salt, no TOTP secret).
+ *
+ * INPUT (params, positional):
+ * - req: the request object (req.user comes from the session, req.session.method
+ *   tells whether the TOTP step has been completed)
+ *
+ * OUTPUT (return value):
+ * - object { id, email, name, surname, score, hasTotpEnabled, isTotpVerified }
+ */
 function clientUserInfo(req) {
 	const user = req.user;
 	return {
@@ -595,12 +633,54 @@ function clientUserInfo(req) {
 	};
 }
 
-// This function is used to format express-validator errors as strings
+/**
+ * Formats the errors produced by express-validator as strings.
+ *
+ * INPUT (params, destructured from the error object):
+ * - location, msg, param, value, nestedErrors
+ *
+ * OUTPUT (return value):
+ * - string describing the error, e.g. "body[rating]: Invalid value"
+ */
 function errorFormatter({ location, msg, param, value, nestedErrors }) {
 	return `${location}[${param}]: ${msg}`;
 }
 
-// Returns { code } if a valid facility is found, otherwise { error }.
+/**
+ * Turns a snake_case name into Title Case: replaces underscores with spaces,
+ * then capitalizes the first letter of every word. Used to build readable
+ * error messages (e.g. "table_tennis_racket" -> "Table Tennis Racket").
+ *
+ * INPUT (params, positional):
+ * - name: string, the name as stored in the DB
+ *
+ * OUTPUT (return value):
+ * - string, the same name in Title Case
+ */
+function formatName(name) {
+	// Splitting the string on every underscore
+	const words = name.split("_");
+	const capitalizedWords = words.map(
+		(word) => word.charAt(0).toUpperCase() + word.slice(1),
+	);
+	return capitalizedWords.join(" ");
+}
+
+/**
+ * Chooses the facility to be booked, either the one explicitly selected by the
+ * user or, if none was selected, one automatically assigned by the system.
+ * NOTE: this only selects a CANDIDATE. The facility is actually taken (in a
+ * race-condition-safe way) by facilityDao.bookFacilityIfFree.
+ *
+ * INPUT (params, positional):
+ * - facilityTypeId: number, the id of the requested facility type
+ * - facilityCode: string or undefined, the code chosen by the user (undefined
+ *   means "automatic assignment")
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to { code } with the code of the chosen facility,
+ *   or to { error: <message> } if no suitable facility is available
+ */
 async function resolveFacility(facilityTypeId, facilityCode) {
 	// Case 1: the user picked a specific facility.
 	if (facilityCode) {
@@ -616,7 +696,7 @@ async function resolveFacility(facilityTypeId, facilityCode) {
 		}
 		return { code: facilityCode };
 	}
-	// Case 2: no code given, auto-assign any free facility of the requested type.
+	// Case 2: no code given, automatically assign any free facility of the requested type.
 	const free = await facilityDao.getOneFreeFacilityByType(facilityTypeId);
 	if (!free) {
 		return { error: "Not enough facilities of this type." };
@@ -624,36 +704,70 @@ async function resolveFacility(facilityTypeId, facilityCode) {
 	return { code: free.code };
 }
 
-// Checks whether the 30-second rebooking cooldown blocks this request.
+/**
+ * Checks whether the 30-second rebooking cooldown blocks this request.
+ *
+ * INPUT (params, positional):
+ * - userId: the id of the user making the request
+ * - facilityTypeId: the id of the facility type they want to book
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to true if the user released a facility of this type
+ *   less than REBOOKING_COOLDOWN_SECONDS ago, false otherwise
+ */
 async function isRebookingTooEarly(userId, facilityTypeId) {
 	// When did this user last release a facility of this type?
 	const lastRelease = await reservationDao.getLastReleaseTime(
 		userId,
 		facilityTypeId,
 	);
-	// No previous release found, so there's no cooldown to wait for.
+	// No previous release found, so there is no cooldown to wait for.
 	if (!lastRelease) return false;
 	const secondsPassed = dayjs().diff(dayjs(lastRelease), "second");
 	// Too early if not enough time has passed since the last release.
 	return secondsPassed < REBOOKING_COOLDOWN_SECONDS;
 }
 
-// Validates the equipment quantities requested by the user against the rules of a facility type.
-// - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
-// - requested: array from req.body.equipment, e.g. [{ equipmentId, quantity }, ...]
-// - userScore: the user's current score (negative scores restrict to mandatory minimums only)
-// Returns { error: 'message' } on the first violation found, or { lines: [...] } with the
-// final list of { equipmentId, name, quantity } to persist (only lines with quantity > 0).
+/**
+ * Returns the quantity requested for a given equipment id.
+ *
+ * INPUT (params, positional):
+ * - requested: array of { equipmentId, quantity } coming from the request body
+ *   (may be undefined)
+ * - equipmentId: the id of the equipment to look for
+ *
+ * OUTPUT (return value):
+ * - number: the requested quantity, or 0 if that equipment was not requested at all
+ */
+function getRequestedEquipmentQuantity(requested, equipmentId) {
+	if (!requested) return 0;
+	const line = requested.find((r) => r.equipmentId === equipmentId);
+	return line ? line.quantity : 0;
+}
 
+/**
+ * Validates the equipment requested when CREATING a new reservation without modifying the DB.
+ *
+ * INPUT (params, positional):
+ * - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId),
+ *   i.e. [{ id, name, totalQuantity, availableQuantity, minQuantity }, ...]
+ * - requested: array from req.body.equipment, i.e. [{ equipmentId, quantity }, ...]
+ * - userScore: number, the score of the user (a negative score allows only the
+ *   mandatory minimum quantities)
+ *
+ * OUTPUT (return value):
+ * - { error: <message> } on the first violation found, or
+ * - { lines: [{ equipmentId, name, quantity }, ...] } with the equipment to be
+ *   taken and stored (only the lines with quantity greater than 0)
+ */
 function validateEquipmentRequest(rules, requested, userScore) {
-	// extracting allowed equipment IDs from the rules
+	// The ids of the equipment that belongs to this facility type
 	const allowedIds = rules.map((r) => r.id);
 
-	// Check for unknown equipment IDs in the request
+	// Check for equipment that does not belong to this facility type
 	const hasUnknownEquipment = requested.some(
 		(e) => !allowedIds.includes(e.equipmentId),
 	);
-
 	if (hasUnknownEquipment) {
 		return {
 			error: "Requested equipment is not valid for this facility type.",
@@ -664,148 +778,268 @@ function validateEquipmentRequest(rules, requested, userScore) {
 		const requestedQuantity = getRequestedEquipmentQuantity(requested, rule.id);
 
 		if (rule.minQuantity > 0) {
-			// Case 1: mandatory equipment
+			// Mandatory equipment
 			if (requestedQuantity < rule.minQuantity) {
 				return {
-					error: `Requested quantity for ${rule.name} is below the mandatory minimum of ${rule.minQuantity}.`,
+					error: `Requested quantity for ${formatName(rule.name)} is below the mandatory minimum of ${rule.minQuantity}.`,
 				};
 			}
 			if (userScore < 0 && requestedQuantity > rule.minQuantity) {
 				return {
-					error: `User score is negative; cannot request more than the mandatory minimum for ${rule.name}.`,
+					error: `Your score is negative: you cannot request more than the mandatory minimum of ${formatName(rule.name)}.`,
 				};
 			}
 		} else {
-			// Case 2: optional equipment
+			// Cptional equipment
 			if (userScore < 0 && requestedQuantity > 0) {
 				return {
-					error: `User score is negative; cannot request any optional equipment.`,
+					error:
+						"Your score is negative: you cannot request optional equipment.",
 				};
 			}
 		}
 
-		// check availability against the current stock
+		// Availability check against the current stock.
 		if (requestedQuantity > rule.availableQuantity) {
 			return {
-				error: `Not enough equipment of type ${"formatName(rule.name)"} available.`,
+				error: `Not enough equipment of type ${formatName(rule.name)} available.`,
 			};
 		}
 	}
 
-	// If we reach this point, all checks passed. We can construct the final lines that will be stored in the database.
-	// We only include lines with quantity > 0, as per the requirement.
+	// All the checks passed: build the lines to be stored, keeping only the
+	// equipment actually requested (quantity greater than 0).
 	const lines = rules
 		.map((rule) => ({
 			equipmentId: rule.id,
 			name: rule.name,
 			quantity: getRequestedEquipmentQuantity(requested, rule.id),
 		}))
-		.filter((line) => line.quantity > 0); // only keep lines with quantity > 0
+		.filter((line) => line.quantity > 0);
 
 	return { lines };
 }
 
-// Returns the quantity requested for a given equipmentId, or 0 if not requested
-// (also returns 0 if "requested" itself is missing/undefined).
-function getRequestedEquipmentQuantity(requested, equipmentId) {
-	if (!requested) return 0;
-	const line = requested.find((r) => r.equipmentId === equipmentId);
-	return line ? line.quantity : 0;
-}
-
-// Applies the equipment changes requested when modifying an EXISTING
-// reservation (PUT /api/reservations/:id). Unlike validateEquipmentRequest
-// (used at creation time, which only validates and returns lines to insert),
-// this function both validates the two edit-specific business rules AND
-// performs the DB writes (availability + rents rows) as it goes.
-// - reservationId: the reservation being modified
-// - currentRents: array from reservationDao.getRentsByReservation(reservationId),
-//   i.e. what is rented on this reservation RIGHT NOW
-// - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
-// - requestedEquipment: array from req.body.equipment, e.g. [{ equipmentId, quantity }, ...]
-// - userScore: the user's current score (negative -> only removals allowed)
-// Returns { error: 'message' } on the first violation found, or undefined on success.
-async function applyEquipmentChanges(
-	reservationId,
+/**
+ * Validates the equipment changes requested when MODIFYING an existing
+ * reservation. It is a pure, read-only function: it never writes to the DB, so
+ * that a violation found on the last item cannot leave the previous ones
+ * already applied.
+ *
+ * INPUT (params, positional):
+ * - currentRents: array from reservationDao.getRentsByReservation(reservationId),
+ *   i.e. what is rented by this reservation right now
+ * - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
+ * - requestedEquipment: array from req.body.equipment, i.e. [{ equipmentId, quantity }, ...]
+ * - userScore: number, the score of the user (a negative score allows removals only)
+ *
+ * OUTPUT (return value):
+ * - { error: <message> } on the first violation found, or
+ * - { changes: [{ equipmentId, name, currentQuantity, newQuantity, delta }, ...] }
+ *   containing only the equipment whose quantity actually changes
+ */
+function validateEquipmentChanges(
 	currentRents,
 	rules,
 	requestedEquipment,
 	userScore,
 ) {
-	// Reject any equipmentId in the request that doesn't belong to this
-	// reservation's facility type at all.
-	const validIds = rules.map((r) => r.id);
-	for (const line of requestedEquipment) {
-		if (!validIds.includes(line.equipmentId)) {
-			return {
-				error: `Equipment ${line.equipmentId} is not valid for this facility type.`,
-			};
-		}
+	// Reject any equipment that does not belong to this reservation's facility type.
+	const allowedIds = rules.map((r) => r.id);
+	const hasUnknownEquipment = requestedEquipment.some(
+		(e) => !allowedIds.includes(e.equipmentId),
+	);
+	if (hasUnknownEquipment) {
+		return {
+			error: "Requested equipment is not valid for this facility type.",
+		};
 	}
 
-	// Iterate over the FULL set of equipment rules for this facility type
-	// (not just the request body), so an item silently missing from the
-	// request is correctly treated as "reduced to 0" rather than ignored.
+	const changes = [];
+
+	// The FULL set of rules is examined (not only the request body), so that an
+	// item missing from the request is correctly treated as "reduced to 0"
+	// instead of being ignored.
 	for (const rule of rules) {
 		const currentLine = currentRents.find((r) => r.equipmentId === rule.id);
-		const currentQty = currentLine ? currentLine.quantity : 0;
-		// Reuses the same helper function already used by validateEquipmentRequest:
-		// returns the requested quantity for this equipment, or 0 if the client
-		// omitted it (which, for optional equipment, means "removed").
-		const requestedQty = getRequestedEquipmentQuantity(
+		const currentQuantity = currentLine ? currentLine.quantity : 0;
+		const newQuantity = getRequestedEquipmentQuantity(
 			requestedEquipment,
 			rule.id,
 		);
 
-		if (requestedQty === currentQty) continue; // nothing to do for this line
+		if (newQuantity === currentQuantity) continue; // nothing changes for this item
 
-		// Rule 1: mandatory equipment can never be changed.
+		// Rule 1: mandatory equipment can never be modified.
 		if (rule.minQuantity > 0) {
 			return {
-				error: `${rule.name} is mandatory and cannot be modified.`,
+				error: `${formatName(rule.name)} is mandatory and cannot be modified.`,
 			};
 		}
 
-		// Rule 2: a negative score forbids ANY increase, only decreases allowed.
-		if (userScore < 0 && requestedQty > currentQty) {
+		// Rule 2: a negative score forbids any increase, only removals are allowed.
+		if (userScore < 0 && newQuantity > currentQuantity) {
 			return {
-				error: "Negative score: only removing equipment is allowed.",
+				error:
+					"Your score is negative: you can only remove equipment, not add it.",
 			};
 		}
 
-		const delta = requestedQty - currentQty;
-
-		if (delta > 0) {
-			// Adding equipment: decrement availability atomically. If there
-			// isn't enough left, this is where the (real, race-condition-safe)
-			// check happens - not in a separate pre-check.
-			const decResult = await facilityDao.decrementEquipmentAvailability(
-				rule.id,
-				delta,
-			);
-			if (decResult && decResult.error) {
-				return decResult;
-			}
-		} else {
-			// Removing equipment: give the freed units back.
-			await facilityDao.incrementEquipmentAvailability(rule.id, -delta);
+		// Early availability check for the additional units (the binding one is
+		// the atomic decrement performed by reserveEquipment).
+		const delta = newQuantity - currentQuantity;
+		if (delta > rule.availableQuantity) {
+			return {
+				error: `Not enough equipment of type ${formatName(rule.name)} available.`,
+			};
 		}
 
-		// Keep the "rents" table in sync with the new quantity.
-		if (currentQty === 0) {
-			await reservationDao.addRent(reservationId, rule.id, requestedQty);
-		} else if (requestedQty === 0) {
-			await reservationDao.deleteRent(reservationId, rule.id);
+		changes.push({
+			equipmentId: rule.id,
+			name: rule.name,
+			currentQuantity: currentQuantity,
+			newQuantity: newQuantity,
+			delta: delta,
+		});
+	}
+
+	return { changes: changes };
+}
+
+/**
+ * Applies to the DB the changes already validated by validateEquipmentChanges:
+ * updates the availability of the equipment and the rent lines of the reservation.
+ *
+ * INPUT (params, positional):
+ * - reservationId: the id of the reservation being modified
+ * - changes: array from validateEquipmentChanges, i.e.
+ *   [{ equipmentId, name, currentQuantity, newQuantity, delta }, ...]
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to {} on success, or to { error: <message> } if some of
+ *   the additional units are no longer available (in that case nothing is
+ *   changed at all: the units taken in the meantime are given back)
+ */
+async function applyEquipmentChanges(reservationId, changes) {
+	// The units to be added are taken FIRST: if they are no longer available the
+	// reservation is left exactly as it was, with no partial modification.
+	const linesToTake = changes
+		.filter((c) => c.delta > 0)
+		.map((c) => ({
+			equipmentId: c.equipmentId,
+			name: c.name,
+			quantity: c.delta,
+		}));
+
+	const reserveResult = await reserveEquipment(linesToTake);
+	if (reserveResult.error) {
+		return reserveResult;
+	}
+
+	// The removed units are given back to the pool.
+	const linesToGiveBack = changes
+		.filter((c) => c.delta < 0)
+		.map((c) => ({ equipmentId: c.equipmentId, quantity: -c.delta }));
+	await releaseEquipment(linesToGiveBack);
+
+	// Finally the rent lines are aligned with the new quantities.
+	for (const change of changes) {
+		if (change.currentQuantity === 0) {
+			await reservationDao.addRent(
+				reservationId,
+				change.equipmentId,
+				change.newQuantity,
+			);
+		} else if (change.newQuantity === 0) {
+			await reservationDao.deleteRent(reservationId, change.equipmentId);
 		} else {
 			await reservationDao.updateRentQuantity(
 				reservationId,
-				rule.id,
-				requestedQty,
+				change.equipmentId,
+				change.newQuantity,
 			);
 		}
 	}
 
-	return undefined; // success, nothing to report
+	return {};
+}
+
+/**
+ * Takes the requested equipment from the common pool, decrementing its
+ * availability. Every decrement is an atomic check-and-update performed by the
+ * DAO (the quantity is decremented only if it is still available), therefore
+ * this is the real protection against two clients taking the same last unit.
+ *
+ * INPUT (params, positional):
+ * - lines: array of { equipmentId, name, quantity } to be taken
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to {} if all the lines have been taken, or to
+ *   { error: <message> } if one of them was not available any more. In the
+ *   latter case the lines already taken are given back, so nothing is left
+ *   half-decremented.
+ */
+async function reserveEquipment(lines) {
+	const alreadyTaken = [];
+
+	for (const line of lines) {
+		const result = await facilityDao.decrementEquipmentAvailability(
+			line.equipmentId,
+			line.quantity,
+		);
+		if (result.error) {
+			await releaseEquipment(alreadyTaken);
+			return {
+				error: `Not enough equipment of type ${formatName(line.name)} available.`,
+			};
+		}
+		alreadyTaken.push(line);
+	}
+
+	return {};
+}
+
+/**
+ * Gives equipment back to the common pool, incrementing its availability (used
+ * when a reservation is deleted or reduced, and to undo a failed operation).
+ *
+ * INPUT (params, positional):
+ * - lines: array of { equipmentId, quantity } to be given back
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to undefined (its job is a SIDE EFFECT on the DB)
+ */
+async function releaseEquipment(lines) {
+	for (const line of lines) {
+		await facilityDao.incrementEquipmentAvailability(
+			line.equipmentId,
+			line.quantity,
+		);
+	}
+}
+
+/**
+ * Undoes a reservation creation that failed halfway because of a DB error, so
+ * that no facility and no equipment stays blocked without a valid reservation.
+ *
+ * INPUT (params, positional):
+ * - reservationId: the id of the reservation already created, or null
+ * - facilityCode: the code of the facility already booked, or null
+ * - lines: array of { equipmentId, quantity } already taken (possibly empty)
+ *
+ * OUTPUT (return value):
+ * - a Promise resolving to undefined (its job is a SIDE EFFECT on the DB). Any
+ *   error happening while undoing is only logged: the client is answered with
+ *   the original error anyway.
+ */
+async function rollbackReservationAttempt(reservationId, facilityCode, lines) {
+	try {
+		if (reservationId) await reservationDao.cancelReservation(reservationId);
+		if (facilityCode) await facilityDao.setFacilityBooked(facilityCode, false);
+		await releaseEquipment(lines);
+	} catch (err) {
+		console.error("Rollback failed:", err);
+	}
 }
 
 // Activating the server

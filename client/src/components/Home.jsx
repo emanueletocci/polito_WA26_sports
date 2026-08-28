@@ -26,7 +26,7 @@ function Home({ loggedIn }) {
 	// [{ id, name, facilityTypeName, availableQuantity, totalQuantity }, ...]
 	const [equipmentList, setEquipmentList] = useState([]);
 
-	// ---- fetch all facilities, then group them by type AND equipent list ----
+	// fetch all facilities, then group them by type 
 	useEffect(() => {
 		API.getFacilities()
 			.then((facilities) => {

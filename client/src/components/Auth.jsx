@@ -259,12 +259,10 @@ function LogoutButton(props) {
 /**
  * Button that navigates to the login page when clicked
  *
- * INPUT: none (this component takes no props)
- *
  * OUTPUT (return value):
  * - JSX: a single "Login" button that, when clicked, navigates to "/login"
  */
-function LoginButton(props) {
+function LoginButton() {
 	const navigate = useNavigate();
 	return (
 		<Button variant="outline-light" onClick={() => navigate("/login")}>
