@@ -82,7 +82,7 @@ passport.deserializeUser(function (id, callback) {
 /** Creating the session */
 app.use(
 	session({
-		secret: "shhhhh... it's a secret! - change it for the exam!",
+		secret: "polito-wa-exam-sport-center-s363290-emanuele-tocci",
 		resave: false,
 		saveUninitialized: false,
 	}),
