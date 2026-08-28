@@ -447,7 +447,7 @@ async function releaseEquipment(lines) {
 async function rollbackReservationAttempt(reservationId, facilityCode, lines) {
 	try {
 		if (reservationId) await reservationDao.cancelReservation(reservationId);
-		if (facilityCode) await facilityDao.setFacilityBooked(facilityCode, false);
+		if (facilityCode) await facilityDao.freeFacility(facilityCode);
 		await releaseEquipment(lines);
 	} catch (err) {
 		console.error("Rollback failed:", err);

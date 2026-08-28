@@ -71,14 +71,10 @@ const getFacilityByCode = (code) => {
 
 // Picks one free facility of a given type automatically (system assignment mode).
 // Returns undefined if none is available.
-// NOTE: this is only a "candidate" lookup, NOT a reservation - between this call
-// and the actual booking, another request could take the same facility. The real,
-// race-condition-safe guarantee comes from bookFacilityIfFree below, which MUST
-// always be called before considering a facility actually reserved.
 const getOneFreeFacilityByType = (facilityTypeId) => {
 	return new Promise((resolve, reject) => {
 		const sql =
-			"SELECT code FROM facilities WHERE facility_type_id = ? AND is_booked = 0 LIMIT 1";
+			"SELECT code FROM facilities WHERE facility_type_id = ? AND is_booked = 0 ORDER BY code LIMIT 1";
 		db.get(sql, [facilityTypeId], (err, row) => {
 			if (err) reject(err);
 			else resolve(row); // undefined if none free
@@ -86,11 +82,8 @@ const getOneFreeFacilityByType = (facilityTypeId) => {
 	});
 };
 
-// Atomically books a facility, but ONLY if it is still free at the moment this
-// exact query runs. The check ("is_booked = 0") and the write happen in the
-// SAME SQL statement, so two concurrent requests can never both succeed on the
-// same facility - the same "atomic check-and-update" pattern already used by
-// decrementEquipmentAvailability below, applied here to the facilities table.
+// Books a facility, but ONLY if it is still free at the moment this
+// exact query runs.
 const bookFacilityIfFree = (code) => {
 	return new Promise((resolve, reject) => {
 		const sql =
@@ -104,16 +97,17 @@ const bookFacilityIfFree = (code) => {
 	});
 };
 
-// Marks a facility as booked (1) or free (0).
-// Used to FREE a facility (e.g. on reservation deletion), where no race
-// condition risk exists: only the reservation that currently holds a facility
-// can release it.
-// For BOOKING a facility, bookFacilityIfFree is used, since it is race-condition-safe.
-//
-const setFacilityBooked = (code, booked) => {
+// freeFacility
+// Marks a facility as free again (e.g. when a reservation is deleted, or when an
+// operation must be undone).
+// Booking is NOT done here: it needs the atomic bookFacilityIfFree.
+// - code: the code of the facility to release
+// Returns a Promise resolving to the number of changed rows (1), or
+// { error: 'Facility not found.' } if no facility has this code.
+const freeFacility = (code) => {
 	return new Promise((resolve, reject) => {
-		const sql = "UPDATE facilities SET is_booked = ? WHERE code = ?";
-		db.run(sql, [booked ? 1 : 0, code], function (err) {
+		const sql = "UPDATE facilities SET is_booked = 0 WHERE code = ?";
+		db.run(sql, [code], function (err) {
 			if (err) reject(err);
 			else if (this.changes !== 1) resolve({ error: "Facility not found." });
 			else resolve(this.changes);
@@ -125,16 +119,18 @@ const setFacilityBooked = (code, booked) => {
 // EQUIPMENT
 // ============================================================
 
-// Returns, for each equipment type, name, available quantity, and the name of the
-// facility type it belongs to. Used by the public home page (no login required).
+// Returns, for each equipment type, id, name, facilityTypeId, facilityTypeName, totalQuantity, availableQuantity, minQuantity
 const getEquipment = () => {
 	return new Promise((resolve, reject) => {
 		const sql = `
-      SELECT e.id, e.name, e.total_quantity AS totalQuantity, e.available_quantity AS availableQuantity,
-             ft.name AS facilityTypeName
-      FROM equipment e
-      JOIN facility_types ft ON e.facility_type_id = ft.id
-    `;
+		SELECT e.id, e.name, e.total_quantity AS totalQuantity,
+			e.available_quantity AS availableQuantity,
+			e.min_quantity AS minQuantity,
+			e.facility_type_id AS facilityTypeId,
+			ft.name AS facilityTypeName
+		FROM equipment e
+		JOIN facility_types ft ON e.facility_type_id = ft.id
+    	`;
 		db.all(sql, [], (err, rows) => {
 			if (err) reject(err);
 			else resolve(rows);
@@ -156,24 +152,6 @@ const getEquipmentRulesForFacilityType = (facilityTypeId) => {
 		db.all(sql, [facilityTypeId], (err, rows) => {
 			if (err) reject(err);
 			else resolve(rows);
-		});
-	});
-};
-
-// Returns a single equipment row given its id.
-const getEquipmentById = (id) => {
-	return new Promise((resolve, reject) => {
-		const sql = `
-      SELECT id, facility_type_id AS facilityTypeId, name,
-             total_quantity AS totalQuantity, available_quantity AS availableQuantity,
-             min_quantity AS minQuantity
-      FROM equipment
-      WHERE id = ?
-    `;
-		db.get(sql, [id], (err, row) => {
-			if (err) reject(err);
-			else if (row === undefined) resolve({ error: "Equipment not found." });
-			else resolve(row);
 		});
 	});
 };
@@ -216,10 +194,9 @@ export default {
 	getFacilityByCode,
 	getOneFreeFacilityByType,
 	bookFacilityIfFree,
-	setFacilityBooked,
+	freeFacility,
 	getEquipment,
 	getEquipmentRulesForFacilityType,
-	getEquipmentById,
 	decrementEquipmentAvailability,
 	incrementEquipmentAvailability,
 };

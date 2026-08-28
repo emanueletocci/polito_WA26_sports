@@ -3,6 +3,24 @@
 import db from "./db.mjs";
 import crypto from "crypto";
 
+// convertUserFromDbRecord
+// Maps a row of the "users" table into the user object used by the application,
+// converting the snake_case column names into camelCase properties. The password
+// hash and the salt are deliberately left out: they never leave the DAO.
+// - dbRecord: a row as returned by SQLite
+// Returns the user object { id, email, name, surname, score, totpSecret, lastTotpStep }
+const convertUserFromDbRecord = (dbRecord) => {
+	return {
+		id: dbRecord.id,
+		email: dbRecord.email,
+		name: dbRecord.name,
+		surname: dbRecord.surname,
+		score: dbRecord.score,
+		totpSecret: dbRecord.totp_secret,
+		lastTotpStep: dbRecord.last_totp_step,
+	};
+};
+
 // This function returns user's information given its id.
 const getUserById = (id) => {
 	return new Promise((resolve, reject) => {
@@ -10,20 +28,7 @@ const getUserById = (id) => {
 		db.get(sql, [id], (err, row) => {
 			if (err) reject(err);
 			else if (row === undefined) resolve({ error: "User not found." });
-			else {
-				// By default, the local strategy looks for "username":
-				// for simplicity, instead of using "email", we create an object with that property.
-				const user = {
-					id: row.id,
-					email: row.email,
-					name: row.name,
-					surname: row.surname,
-					score: row.score,
-					totpSecret: row.totp_secret,
-					lastTotpStep: row.last_totp_step,
-				};
-				resolve(user);
-			}
+			else resolve(convertUserFromDbRecord(row));
 		});
 	});
 };
@@ -36,40 +41,34 @@ const getUser = (email, password) => {
 			if (err) {
 				reject(err);
 			} else if (row === undefined) {
+				// No user with this email. NB: the same "false" is returned when the
+				// password is wrong
 				resolve(false);
 			} else {
-				const user = {
-					id: row.id,
-					email: row.email,
-					name: row.name,
-					surname: row.surname,
-					score: row.score,
-					totpSecret: row.totp_secret,
-					lastTotpStep: row.last_totp_step,
-				};
+				// The application-level user object is built here, but it is returned
+				// ONLY if the password check below succeeds.
+				const user = convertUserFromDbRecord(row);
 
-				// Check the hashes with an async call, this operation may be CPU-intensive (and we don't want to block the server)
+				// Check the hashes with an async call: this operation may be
+				// CPU-intensive (and we don't want to block the server)
 				crypto.scrypt(
 					password,
 					Buffer.from(row.salt, "hex"),
-					32,
+					32, // 32 bytes = the 64 hex characters stored in password_hash
 					function (err, hashedPassword) {
-						// WARN: it is 64 and not 32 (as in the week example) in the DB
 						if (err) {
 							reject(err);
 							return;
 						}
 						if (
 							!crypto.timingSafeEqual(
-								// row.password_hash is stored as a hex string (TEXT column in SQLite), not as raw bytes.
-								// Buffer.from(row.password_hash, 'hex') decodes it back into a real byte sequence,
-								// matching the Buffer format returned by crypto.scrypt - without this conversion,
-								// timingSafeEqual would compare a text string against raw bytes and always fail.
+								// password_hash is stored as a hex string (TEXT column), not as
+								// raw bytes: Buffer.from(..., "hex") decodes it back into the
+								// byte sequence returned by crypto.scrypt.
 								Buffer.from(row.password_hash, "hex"),
 								hashedPassword,
 							)
 						)
-							// WARN: it is hash and not password (as in the week example) in the DB
 							resolve(false);
 						else resolve(user);
 					},
@@ -107,18 +106,6 @@ const decrementScore = (userId) => {
 	});
 };
 
-// Increases the user's score by 1 (for symmetry).
-const incrementScore = (userId) => {
-	return new Promise((resolve, reject) => {
-		const sql = "UPDATE users SET score = score + 1 WHERE id = ?";
-		db.run(sql, [userId], function (err) {
-			if (err) reject(err);
-			else if (this.changes !== 1) resolve({ error: "User not found." });
-			else resolve(this.changes);
-		});
-	});
-};
-
 // Resets the user's score to 0 (called after a successful TOTP login).
 const resetScore = (userId) => {
 	return new Promise((resolve, reject) => {
@@ -136,6 +123,5 @@ export default {
 	getUser,
 	updateLastTotpStep,
 	decrementScore,
-	incrementScore,
 	resetScore,
 };

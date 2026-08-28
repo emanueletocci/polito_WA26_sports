@@ -597,7 +597,7 @@ app.delete(
 			}
 
 			// restore the facility to "free"
-			await facilityDao.setFacilityBooked(reservation.facilityCode, false);
+			await facilityDao.freeFacility(reservation.facilityCode);
 
 			// restore the availability of every equipment type that was rented
 			await releaseEquipment(rents);
