@@ -78,7 +78,7 @@
 
 ## Screenshot
 
-![Screenshot of the facility selection page](./img/book.png)
+![Screenshot of the homepage](./img/homepage_login.png)
 
 ## Users Credentials
 
