@@ -282,10 +282,12 @@ function validateEquipmentChanges(
 
 		if (newQuantity === currentQuantity) continue; // nothing changes for this item
 
-		// Rule 1: mandatory equipment can never be modified.
-		if (rule.minQuantity > 0) {
+		// Rule 1: a mandatory equipment type may be increased or decreased, but
+		// never below the minimum quantity required by this facility type.
+		// An optional one (minQuantity === 0) may be removed completely.
+		if (newQuantity < rule.minQuantity) {
 			return {
-				error: `${formatName(rule.name)} is mandatory and cannot be modified.`,
+				error: `${formatName(rule.name)} cannot go below the mandatory minimum of ${rule.minQuantity}.`,
 			};
 		}
 

@@ -481,7 +481,6 @@ app.post(
 // PUT /api/reservations/:id
 // Modifies the equipment of an existing active reservation.
 // Rules enforced here:
-// - Mandatory equipment can never be changed (it must stay exactly as booked).
 // - If the user's score is negative, quantities can only DECREASE, never increase.
 // - An item missing from req.body.equipment is treated as "reduced to 0": this is
 //   why the whole "rules" list of the facility type is examined, and not only the

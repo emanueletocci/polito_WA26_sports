@@ -11,13 +11,20 @@ import { EquipmentRow } from "./EquipmentSelection.jsx";
  *
  * INPUT (props, passed as a single object):
  * - user: object, the currently logged-in user (user.score decides whether
- *   optional equipment may be added)
+ *   equipment may be added)
  * - showSuccess: function(text), shows a confirmation message to the user
  * - handleErrors: function(err), shows the reason of a failed operation
  *
  * OUTPUT (return value):
  * - JSX: the page that modifies the equipment of one existing reservation,
  *   identified by the ":reservationId" parameter of the URL
+ *
+ * Rules applied here (the server enforces them again):
+ * - every equipment type may be increased or decreased, but a mandatory type
+ *   can never go below its minimum quantity, and an optional one never below 0;
+ * - the upper limit is what is free in the sport center plus the units already
+ *   held by this reservation;
+ * - a user with a negative score may only decrease quantities.
  */
 function ReservationEdit(props) {
 	// reservationId comes from the URL, e.g. "/reservations/12/edit" -> "12"
@@ -80,6 +87,22 @@ function ReservationEdit(props) {
 	}, [reservationId]);
 
 	/**
+	 * getEffectiveMin
+	 *
+	 * INPUT (params, positional):
+	 * - equipment: the equipment object being changed
+	 *
+	 * OUTPUT (return value):
+	 * - number: the lowest quantity of this item that THIS reservation may end
+	 *   up with. A mandatory type must always keep at least its minimum
+	 *   quantity, while an optional type (minQuantity === 0) may be removed
+	 *   completely.
+	 */
+	const getEffectiveMin = (equipment) => {
+		return equipment.minQuantity;
+	};
+
+	/**
 	 * getEffectiveMax
 	 *
 	 * INPUT (params, positional):
@@ -90,10 +113,11 @@ function ReservationEdit(props) {
 	 *   up with. availableQuantity is what is free right now in the whole sport
 	 *   center and does NOT include the units already held by this reservation
 	 *   (they were subtracted from the pool when it was created), so the units
-	 *   already held must be added back.
-
+	 *   already held must be added back. When the score is negative no unit may
+	 *   be added, therefore the current quantity is itself the maximum.
 	 */
 	const getEffectiveMax = (equipment) => {
+		if (user.score < 0) return initialQuantities[equipment.id];
 		return equipment.availableQuantity + initialQuantities[equipment.id];
 	};
 
@@ -104,14 +128,17 @@ function ReservationEdit(props) {
 	 * - equipment: the equipment object whose quantity is being changed
 	 * - delta: number, how much to add to the current quantity (+1 or -1)
 	 *
+	 * OUTPUT: none (the "quantities" state is updated)
 	 */
 	const handleQuantityChange = (equipment, delta) => {
 		setQuantities((prev) => {
 			const current = prev[equipment.id];
 			let next = current + delta;
 
-			// Optional equipment has no minimum: never below 0.
-			if (next < 0) next = 0;
+			// The quantity is kept inside the allowed interval: mandatory items
+			// stop at their minimum, optional ones at 0.
+			const effectiveMin = getEffectiveMin(equipment);
+			if (next < effectiveMin) next = effectiveMin;
 
 			const effectiveMax = getEffectiveMax(equipment);
 			if (next > effectiveMax) next = effectiveMax;
@@ -130,13 +157,15 @@ function ReservationEdit(props) {
 	 * INPUT (params, positional):
 	 * - event: the (synthetic) form submit / button click event
 	 *
+	 * OUTPUT: none (the reservation is updated on the server, then the user is
+	 * sent back to the list of reservations)
 	 */
 	const handleSubmit = (event) => {
 		event.preventDefault();
 
-		// The full equipment list is sent (mandatory items unchanged, optional
-		// items with their possibly modified quantity). Items at 0 are dropped,
-		// exactly as when a reservation is created.
+		// The full equipment list is sent (mandatory items with at least their
+		// minimum quantity, optional items with their possibly modified one).
+		// Items at 0 are dropped, exactly as when a reservation is created.
 		const equipment = Object.entries(quantities)
 			.filter(([, quantity]) => quantity > 0)
 			.map(([equipmentId, quantity]) => ({
@@ -175,17 +204,17 @@ function ReservationEdit(props) {
 		);
 	}
 
-	// Mandatory equipment (read-only here) and optional equipment (editable,
-	// within the limits described at the top of this file).
+	// Mandatory equipment (editable, but never below its minimum) and optional
+	// equipment (editable, and removable completely).
 	const mandatory = equipmentRules.filter((eq) => eq.minQuantity > 0);
 	const optional = equipmentRules.filter((eq) => eq.minQuantity === 0);
 
 	// A negative score allows removing equipment, never adding it.
-	const canAddOptional = user.score >= 0;
+	const canAdd = user.score >= 0;
 
 	// Warning shown to users with a negative score
 	let negativeScoreAlert = null;
-	if (!canAddOptional) {
+	if (!canAdd) {
 		negativeScoreAlert = (
 			<Alert variant="warning">
 				Your score is negative: you can still remove equipment, but you cannot
@@ -195,39 +224,47 @@ function ReservationEdit(props) {
 		);
 	}
 
-	// Mandatory section: shown, but not editable
+	/**
+	 * renderEquipmentRow
+	 *
+	 * INPUT (params, positional):
+	 * - equipment: the equipment object to be shown
+	 *
+	 * OUTPUT (return value):
+	 * - JSX: one row with the name of the item, its limits, and the - / +
+	 *   buttons enabled according to the limits computed above
+	 */
+	const renderEquipmentRow = (equipment) => {
+		const quantity = quantities[equipment.id];
+		return (
+			<EquipmentRow
+				key={equipment.id}
+				equipment={equipment}
+				quantity={quantity}
+				// Removing is always allowed, even with a negative score, down to
+				// the minimum required for this facility type.
+				canDecrease={quantity > getEffectiveMin(equipment)}
+				canIncrease={canAdd && quantity < getEffectiveMax(equipment)}
+				handleQuantityChange={handleQuantityChange}
+				formDisabled={formDisabled}
+			/>
+		);
+	};
+
+	// Mandatory section
 	let mandatoryContent;
 	if (mandatory.length === 0) {
 		mandatoryContent = <p className="text-muted">N/A</p>;
 	} else {
-		mandatoryContent = mandatory.map((eq) => (
-			<EquipmentRow
-				key={eq.id}
-				equipment={eq}
-				quantity={quantities[eq.id]}
-				readOnly={true}
-				readOnlyLabel="Mandatory, locked"
-			/>
-		));
+		mandatoryContent = mandatory.map((eq) => renderEquipmentRow(eq));
 	}
 
-	// Optional section: editable
+	// Optional section
 	let optionalContent;
 	if (optional.length === 0) {
 		optionalContent = <p className="text-muted">N/A</p>;
 	} else {
-		optionalContent = optional.map((eq) => (
-			<EquipmentRow
-				key={eq.id}
-				equipment={eq}
-				quantity={quantities[eq.id]}
-				// Removing is always allowed, even with a negative score.
-				canDecrease={quantities[eq.id] > 0}
-				canIncrease={canAddOptional && quantities[eq.id] < getEffectiveMax(eq)}
-				handleQuantityChange={handleQuantityChange}
-				formDisabled={formDisabled}
-			/>
-		));
+		optionalContent = optional.map((eq) => renderEquipmentRow(eq));
 	}
 
 	return (
@@ -242,8 +279,8 @@ function ReservationEdit(props) {
 			<Card className="p-3 mb-4">
 				<h2 className="h5">Equipment</h2>
 				<p className="text-muted small mb-3">
-					The mandatory equipment cannot be changed. Use the + and - buttons to
-					adjust the optional one.
+					Use the + and - buttons to adjust the quantities. The mandatory
+					equipment cannot go below the minimum required by this facility.
 				</p>
 
 				<hr />
