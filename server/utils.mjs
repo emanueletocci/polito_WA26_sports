@@ -18,6 +18,10 @@ import facilityDao from "./dao-facilities.mjs";
 // before this amount of seconds has passed (requirement of the exam text).
 const REBOOKING_COOLDOWN_SECONDS = 30;
 
+// -----------------------------------------------------------------------------
+// FORMATTERS
+// -----------------------------------------------------------------------------
+
 /**
  * Builds the user information that is safe to send to the client (no password
  * hash, no salt, no TOTP secret).
@@ -75,11 +79,14 @@ function formatName(name) {
 	return capitalizedWords.join(" ");
 }
 
+// -----------------------------------------------------------------------------
+// VALIDATION FUNCTIONS
+// -----------------------------------------------------------------------------
+
 /**
  * Chooses the facility to be booked, either the one explicitly selected by the
  * user or, if none was selected, one automatically assigned by the system.
- * NOTE: this only selects a CANDIDATE. The facility is actually taken (in a
- * race-condition-safe way) by facilityDao.bookFacilityIfFree.
+ * NOTE: this only selects a CANDIDATE.
  *
  * INPUT (params, positional):
  * - facilityTypeId: number, the id of the requested facility type
@@ -91,7 +98,8 @@ function formatName(name) {
  *   or to { error: <message> } if no suitable facility is available
  */
 async function resolveFacility(facilityTypeId, facilityCode) {
-	// Case 1: the user picked a specific facility.
+	// Case 1: the user picked a specific facility
+	// facilityCode is explicitely given, so we must check that it is valid and available.
 	if (facilityCode) {
 		const facility = await facilityDao.getFacilityByCode(facilityCode);
 		if (
@@ -116,7 +124,7 @@ async function resolveFacility(facilityTypeId, facilityCode) {
 /**
  * Checks whether the 30-second rebooking cooldown blocks this request.
  *
- * INPUT (params, positional):
+ * INPUT:
  * - userId: the id of the user making the request
  * - facilityTypeId: the id of the facility type they want to book
  *
@@ -140,9 +148,9 @@ async function isRebookingTooEarly(userId, facilityTypeId) {
 /**
  * Returns the quantity requested for a given equipment id.
  *
- * INPUT (params, positional):
+ * INPUT (params):
  * - requested: array of { equipmentId, quantity } coming from the request body
- *   (may be undefined)
+ *   (may be undefined) sent by the client when creating or modifying a reservation
  * - equipmentId: the id of the equipment to look for
  *
  * OUTPUT (return value):
@@ -151,14 +159,15 @@ async function isRebookingTooEarly(userId, facilityTypeId) {
 function getRequestedEquipmentQuantity(requested, equipmentId) {
 	if (!requested) return 0;
 	const line = requested.find((r) => r.equipmentId === equipmentId);
+	// return 0 if the equipment was not in the body requested at all, otherwise return the quantity requested
 	return line ? line.quantity : 0;
 }
 
 /**
- * Validates the equipment requested when CREATING a new reservation. It is a
- * pure, read-only function: it never writes to the DB.
+ * Validates the equipment requested when CREATING a new reservation. It is a , read-only function:
+ * it never writes to the DB.
  *
- * INPUT (params, positional):
+ * INPUT (params):
  * - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId),
  *   i.e. [{ id, name, totalQuantity, availableQuantity, minQuantity }, ...]
  * - requested: array from req.body.equipment, i.e. [{ equipmentId, quantity }, ...]
@@ -209,9 +218,7 @@ function validateEquipmentRequest(rules, requested, userScore) {
 			}
 		}
 
-		// Availability check against the current stock. This is an early check
-		// that produces a clear message: the binding one is the atomic decrement
-		// performed later by reserveEquipment.
+		// Availability check against the current stock.
 		if (requestedQuantity > rule.availableQuantity) {
 			return {
 				error: `Not enough equipment of type ${formatName(rule.name)} available.`,
@@ -234,11 +241,9 @@ function validateEquipmentRequest(rules, requested, userScore) {
 
 /**
  * Validates the equipment changes requested when MODIFYING an existing
- * reservation. It is a pure, read-only function: it never writes to the DB, so
- * that a violation found on the last item cannot leave the previous ones
- * already applied.
+ * reservation. It is read-only function.
  *
- * INPUT (params, positional):
+ * INPUT (params):
  * - currentRents: array from reservationDao.getRentsByReservation(reservationId),
  *   i.e. what is rented by this reservation right now
  * - rules: array from facilityDao.getEquipmentRulesForFacilityType(facilityTypeId)
@@ -299,8 +304,7 @@ function validateEquipmentChanges(
 			};
 		}
 
-		// Early availability check for the additional units (the binding one is
-		// the atomic decrement performed by reserveEquipment).
+		// Early availability check for the additional units
 		const delta = newQuantity - currentQuantity;
 		if (delta > rule.availableQuantity) {
 			return {
@@ -320,11 +324,15 @@ function validateEquipmentChanges(
 	return { changes: changes };
 }
 
+// -----------------------------------------------------------------------------
+// PERSISTENCE FUNCTIONS (DB WRITING)
+// -----------------------------------------------------------------------------
+
 /**
  * Applies to the DB the changes already validated by validateEquipmentChanges:
  * updates the availability of the equipment and the rent lines of the reservation.
  *
- * INPUT (params, positional):
+ * INPUT (params):
  * - reservationId: the id of the reservation being modified
  * - changes: array from validateEquipmentChanges, i.e.
  *   [{ equipmentId, name, currentQuantity, newQuantity, delta }, ...]
@@ -337,6 +345,8 @@ function validateEquipmentChanges(
 async function applyEquipmentChanges(reservationId, changes) {
 	// The units to be added are taken FIRST: if they are no longer available the
 	// reservation is left exactly as it was, with no partial modification.
+	// Quantity contains only the difference to be taken, not the total quantity requested.
+	// The map method is used to build a new array in the form that reserveEquipment expects, i.e. { equipmentId, name, quantity }.
 	const linesToTake = changes
 		.filter((c) => c.delta > 0)
 		.map((c) => ({
@@ -345,25 +355,33 @@ async function applyEquipmentChanges(reservationId, changes) {
 			quantity: c.delta,
 		}));
 
+	// If some of the additional units are no longer available, reserveEquipment will return an error
+	// reserveEquipment will decrement the availability of the requested equipment in the DB, and if
+	// it fails it will give back any units already taken.
 	const reserveResult = await reserveEquipment(linesToTake);
 	if (reserveResult.error) {
 		return reserveResult;
 	}
 
 	// The removed units are given back to the pool.
+	// A negative delta here means that the user is reducing the quantity of that equipment,
+	// so we need to give those units back to the pool.
 	const linesToGiveBack = changes
 		.filter((c) => c.delta < 0)
 		.map((c) => ({ equipmentId: c.equipmentId, quantity: -c.delta }));
 	await releaseEquipment(linesToGiveBack);
 
-	// Finally the rent lines are aligned with the new quantities.
+	// At this point the availability of the equipment (equipment table) has been updated,
+	// so we can update the rent lines of the reservation (rent table) to reflect the new quantities.
 	for (const change of changes) {
+		// the line does not exist yet in the rent table, so we need to create it
 		if (change.currentQuantity === 0) {
 			await reservationDao.addRent(
 				reservationId,
 				change.equipmentId,
 				change.newQuantity,
 			);
+			// the line exists in the rent table, but the user wants to remove it completely
 		} else if (change.newQuantity === 0) {
 			await reservationDao.deleteRent(reservationId, change.equipmentId);
 		} else {
@@ -380,11 +398,9 @@ async function applyEquipmentChanges(reservationId, changes) {
 
 /**
  * Takes the requested equipment from the common pool, decrementing its
- * availability. Every decrement is an atomic check-and-update performed by the
- * DAO (the quantity is decremented only if it is still available), therefore
- * this is the real protection against two clients taking the same last unit.
+ * availability. If an error occurs, the already taken equipment is given back to the pool.
  *
- * INPUT (params, positional):
+ * INPUT (params):
  * - lines: array of { equipmentId, name, quantity } to be taken
  *
  * OUTPUT (return value):
@@ -417,7 +433,7 @@ async function reserveEquipment(lines) {
  * Gives equipment back to the common pool, incrementing its availability (used
  * when a reservation is deleted or reduced, and to undo a failed operation).
  *
- * INPUT (params, positional):
+ * INPUT (params):
  * - lines: array of { equipmentId, quantity } to be given back
  *
  * OUTPUT (return value):
@@ -433,21 +449,29 @@ async function releaseEquipment(lines) {
 }
 
 /**
- * Undoes a reservation creation that failed halfway because of a DB error, so
- * that no facility and no equipment stays blocked without a valid reservation.
+ * Undoes a reservation creation that failed halfway because of a DB error.
  *
- * INPUT (params, positional):
+ * Creating a reservation needs four separate writes (take the equipment, book
+ * the facility, create the reservation, add the rent lines). If the DB fails in
+ * the middle, some of them are already done: for example the facility is marked
+ * as booked and the equipment has been taken, but no reservation exists. Without
+ * this function that facility and that equipment would stay blocked forever,
+ * because there is no reservation to cancel in order to free them again.
+ *
+ * The caller keeps track of what has already been done in three variables
+ * (createdReservationId, bookedFacilityCode, takenLines) and passes them here,
+ * because the exception itself does not carry that information. The undoing is
+ * done in the reverse order of the writes, and each step is skipped when the
+ * corresponding value is null, i.e. when that step never happened.
+ *
+ * INPUT (params):
  * - reservationId: the id of the reservation already created, or null
  * - facilityCode: the code of the facility already booked, or null
  * - lines: array of { equipmentId, quantity } already taken (possibly empty)
- *
- * OUTPUT (return value):
- * - a Promise resolving to undefined (its job is a SIDE EFFECT on the DB). Any
- *   error happening while undoing is only logged: the client is answered with
- *   the original error anyway.
  */
 async function rollbackReservationAttempt(reservationId, facilityCode, lines) {
 	try {
+		// Skipping the steps that never happened (null values) and undoing the others in reverse order.
 		if (reservationId) await reservationDao.cancelReservation(reservationId);
 		if (facilityCode) await facilityDao.freeFacility(facilityCode);
 		await releaseEquipment(lines);
@@ -456,9 +480,6 @@ async function rollbackReservationAttempt(reservationId, facilityCode, lines) {
 	}
 }
 
-// Only the functions actually called by index.mjs are exported: formatName and
-// getRequestedEquipmentQuantity stay private to this module, because they are
-// just internal helpers of the validation functions above.
 export {
 	clientUserInfo,
 	errorFormatter,
