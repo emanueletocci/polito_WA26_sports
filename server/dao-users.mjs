@@ -3,7 +3,6 @@
 import db from "./db.mjs";
 import crypto from "crypto";
 
-// convertUserFromDbRecord
 // Maps a row of the "users" table into the user object used by the application,
 // converting the snake_case column names into camelCase properties. The password
 // hash and the salt are deliberately left out: they never leave the DAO.
