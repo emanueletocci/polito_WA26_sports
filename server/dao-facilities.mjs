@@ -6,16 +6,23 @@ import db from "./db.mjs";
 // FACILITIES
 // ============================================================
 
-// Filter functions applied in JS, after a single unfiltered query to the DB.
-// This mirrors the "filterValues" pattern used for films in the lab.
+// Maps every accepted value of the "status" query parameter to the function
+// that filters the rows for it. The DB is queried once, without a WHERE clause,
+// and the filtering is done in JS.
+
+// The object plays two roles at the same time:
+//  - its KEYS are the list of accepted values, so validating the parameter is
+//    just a matter of checking whether the key exists (see getFacilities);
+//  - its VALUES hold the filtering function, so the string coming from the
+//    client is turned into a function with one lookup, without a chain of ifs.
+
 const facilityFilterValues = {
 	free: { filterFunction: (f) => f.isBooked === 0 },
 	booked: { filterFunction: (f) => f.isBooked === 1 },
 };
 
 // Returns facilities (each with its type), optionally filtered by status ("free" | "booked").
-// Without a filter, returns ALL facilities - this is what the public homepage needs
-// to compute per-type counts (free/booked/total).
+// Without a filter, returns ALL facilities; used by the public homepage to compute per-type counts (free/booked/total).
 const getFacilities = (filter) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
@@ -45,7 +52,8 @@ const getFacilities = (filter) => {
 	});
 };
 
-// Returns the list of all facility types (id, name) - useful for dropdowns/validation.
+// Returns the list of all the facility types of the sport center.
+// [{ id: 1, name: 'tennis' }, { id: 2, name: 'basketball' }, ...].
 const getAllFacilityTypes = () => {
 	return new Promise((resolve, reject) => {
 		const sql = "SELECT id, name FROM facility_types";
@@ -56,7 +64,7 @@ const getAllFacilityTypes = () => {
 	});
 };
 
-// Returns a single facility given its code, including its facility_type_id (needed to know which equipment rules apply).
+// Returns a single facility given its code.
 const getFacilityByCode = (code) => {
 	return new Promise((resolve, reject) => {
 		const sql =
@@ -90,6 +98,7 @@ const bookFacilityIfFree = (code) => {
 			"UPDATE facilities SET is_booked = 1 WHERE code = ? AND is_booked = 0";
 		db.run(sql, [code], function (err) {
 			if (err) reject(err);
+			// If no row was updated, it means the facility was already booked by someone else.
 			else if (this.changes !== 1)
 				resolve({ error: "Facility is no longer available." });
 			else resolve(this.changes);
@@ -97,13 +106,8 @@ const bookFacilityIfFree = (code) => {
 	});
 };
 
-// freeFacility
-// Marks a facility as free again (e.g. when a reservation is deleted, or when an
-// operation must be undone).
-// Booking is NOT done here: it needs the atomic bookFacilityIfFree.
-// - code: the code of the facility to release
-// Returns a Promise resolving to the number of changed rows (1), or
-// { error: 'Facility not found.' } if no facility has this code.
+// Marks a facility as free again (e.g. when a reservation is deleted, or when an operation must be undone).
+// Booking is NOT done here: it is performed by bookFacilityIfFree.
 const freeFacility = (code) => {
 	return new Promise((resolve, reject) => {
 		const sql = "UPDATE facilities SET is_booked = 0 WHERE code = ?";
@@ -119,7 +123,7 @@ const freeFacility = (code) => {
 // EQUIPMENT
 // ============================================================
 
-// Returns, for each equipment type, id, name, facilityTypeId, facilityTypeName, totalQuantity, availableQuantity, minQuantity
+// Returns ALL the equipment of the sport center, with its current availability.
 const getEquipment = () => {
 	return new Promise((resolve, reject) => {
 		const sql = `
@@ -138,9 +142,30 @@ const getEquipment = () => {
 	});
 };
 
-// Returns all equipment rules (name, min_quantity) for a given facility type.
-// min_quantity = 0 means optional, > 0 means mandatory with that minimum.
-// Used to validate a reservation request (mandatory minimums, allowed equipment types).
+// getEquipmentRulesForFacilityType
+// Returns the equipment rules of ONE facility type: which items can be rented
+// with it, how many of each are mandatory, and how many are free right now.
+// This is the "rules" array on which the validation functions of utils.mjs
+// iterate.
+//
+//
+// Returns a Promise resolving to an array of rules. For tennis (id 1):
+//   [
+//     { id: 1, name: 'tennis_racket', totalQuantity: 8, availableQuantity: 6, minQuantity: 2 },
+//     { id: 2, name: 'tennis_ball',   totalQuantity: 7, availableQuantity: 4, minQuantity: 3 },
+//     { id: 3, name: 'towel',         totalQuantity: 4, availableQuantity: 4, minQuantity: 0 }
+//   ]
+// where:
+//  - minQuantity > 0  -> mandatory, and that value is the lowest quantity a
+//                        reservation may have ;
+//  - minQuantity === 0 -> optional, so it can be removed completely;
+//  - availableQuantity -> units free in the whole sport center, NOT counting the
+//                        ones already held by existing reservations (they were
+//                        subtracted when those reservations were created). 
+//
+// An EMPTY array means that no equipment is associated to this id, i.e. the
+// facility type does not exist.
+
 const getEquipmentRulesForFacilityType = (facilityTypeId) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
@@ -157,8 +182,6 @@ const getEquipmentRulesForFacilityType = (facilityTypeId) => {
 };
 
 // Decreases the available quantity of an equipment type by a given amount.
-// Only succeeds (changes = 1) if enough quantity is available - this is an atomic check-and-update
-// that prevents overbooking equipment under concurrent requests.
 const decrementEquipmentAvailability = (equipmentId, quantity) => {
 	return new Promise((resolve, reject) => {
 		const sql = `
