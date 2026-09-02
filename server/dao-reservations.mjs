@@ -7,10 +7,7 @@ import dayjs from "dayjs";
 // RESERVATIONS
 // -----------------------------------------------------------------------------
 
-// getActiveReservationsByUser
 // Returns all ACTIVE reservations for a given user, joined with facility info.
-// Used by: GET /api/reservations
-// - userId: the id of the user whose reservations should be retrieved
 // Returns a Promise resolving to an array of rows, each shaped like:
 // { id, userId, facilityCode, createdAt, facilityTypeId, facilityTypeName }
 const getActiveReservationsByUser = (userId) => {
@@ -30,11 +27,9 @@ const getActiveReservationsByUser = (userId) => {
 	});
 };
 
-// getReservationById
 // Returns a single reservation given its id, joined with facility_type_id
 // AND facility_type_name (needed for authorization checks, to know which
 // equipment rules apply, and to display the facility type name in the UI).
-// - id: the id of the reservation to retrieve
 // Returns a Promise resolving to:
 // - { id, userId, facilityCode, createdAt, status, releasedAt, facilityTypeId, facilityTypeName } if found
 // - { error: 'Reservation not found.' } if no reservation has this id
@@ -57,7 +52,6 @@ const getReservationById = (id) => {
 	});
 };
 
-// createReservation
 // Creates a new (active) reservation for a user on a given facility.
 // - userId: the id of the user making the reservation
 // - facilityCode: the code of the facility being reserved (must already be
@@ -76,12 +70,9 @@ const createReservation = (userId, facilityCode) => {
 	});
 };
 
-// cancelReservation
-// Marks an ACTIVE reservation as cancelled and records the release time (used for
-// the 30s rebooking rule). Two concurrent DELETE requests on the same reservation
-// can never both succeed, so the equipment is given back only once and the user's
-// score is decremented only once.
-// - id: the id of the reservation to cancel
+// Marks an active reservation as cancelled and records the release time (used for
+// the 30s rebooking rule).
+//
 // Returns a Promise resolving to:
 // - the number of changed rows (1) if the reservation was active and has been cancelled
 // - { error: 'Reservation not found or not active.' } if it does not exist or was
@@ -100,12 +91,10 @@ const cancelReservation = (id) => {
 	});
 };
 
-// getLastReleaseTime
 // Returns the timestamp of the most recent release (cancellation) by this user for this facility type,
 // or undefined if none exists. The caller compares this timestamp with the current time in JS
-// to decide whether the 30-second cooldown rule applies (no date arithmetic done in SQL).
-// - userId: the id of the user to check
-// - facilityTypeId: the facility type to check the cooldown for
+// to decide whether the 30-second cooldown rule applies.
+//
 // Returns a Promise resolving to the raw released_at string, or undefined if
 // this user never cancelled a reservation of this facility type.
 const getLastReleaseTime = (userId, facilityTypeId) => {
@@ -129,9 +118,8 @@ const getLastReleaseTime = (userId, facilityTypeId) => {
 // RENTS (equipment rented for a reservation)
 // -----------------------------------------------------------------------------
 
-// getRentsByReservation
 // Returns all equipment rented for a given reservation, joined with equipment info.
-// - reservationId: the id of the reservation whose rented equipment should be retrieved
+//
 // Returns a Promise resolving to an array of rows, each shaped like:
 // { reservationId, equipmentId, quantity, name, minQuantity }
 const getRentsByReservation = (reservationId) => {
@@ -150,11 +138,11 @@ const getRentsByReservation = (reservationId) => {
 	});
 };
 
-// addRent
-// Adds one equipment line to a reservation (used at creation time, and when adding an extra at update time).
+// Adds one equipment line to a reservation.
 // - reservationId: the reservation the equipment line belongs to
 // - equipmentId: the id of the equipment being rented
 // - quantity: how many units are being rented
+//
 // Returns a Promise resolving to the id of the newly created rent row
 // (this.lastID). The caller is responsible for also decrementing the
 // equipment's available quantity (facilityDao.decrementEquipmentAvailability).
@@ -169,11 +157,11 @@ const addRent = (reservationId, equipmentId, quantity) => {
 	});
 };
 
-// updateRentQuantity
 // Updates the quantity of an already-rented equipment line (used when the user changes an extra quantity).
 // - reservationId: the reservation the equipment line belongs to
 // - equipmentId: the id of the equipment whose quantity is being updated
 // - quantity: the new quantity to set
+//
 // Returns a Promise resolving to:
 // - the number of changed rows (1) on success
 // - { error: 'Rent line not found.' } if no matching row exists
@@ -189,11 +177,11 @@ const updateRentQuantity = (reservationId, equipmentId, quantity) => {
 	});
 };
 
-// deleteRent
 // Removes one equipment line from a reservation (used when removing an optional/extra item; the caller
 // must ensure this is never called for a mandatory minimum line).
 // - reservationId: the reservation the equipment line belongs to
 // - equipmentId: the id of the equipment line to remove
+//
 // Returns a Promise resolving to the number of deleted rows (0 or 1 - the
 // caller does not currently distinguish between "nothing to delete" and
 // "deleted successfully").
