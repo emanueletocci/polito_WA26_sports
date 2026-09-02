@@ -36,6 +36,21 @@ app.use(morgan("dev"));
 app.use(express.json());
 
 /** Set up and enable Cross-Origin Resource Sharing (CORS) **/
+// The client is served by Vite on port 5173 while this server listens on 3001:
+// different origins, so the browser blocks the requests unless the server
+// explicitly allows them.
+//
+// By default a browser does NOT attach cookies to a cross-origin request (it is
+// a protection against CSRF). Here that cookie is the session cookie, and we need it:
+//  - the client asks to send it, with credentials: 'include' in every fetch of API.js;
+//  - the server accepts it, with credentials: true here, which adds the
+//    Access-Control-Allow-Credentials header to every response.
+//
+// If either one is missing, the login itself works (the server answers 200) but
+// every request after it gets a 401, because the cookie was never stored or is
+// never sent back.
+//
+
 const corsOptions = {
 	origin: "http://localhost:5173",
 	credentials: true,
@@ -172,7 +187,7 @@ app.post("/api/sessions", function (req, res, next) {
 
 // POST /api/login-totp
 // Second step of login: verifies the TOTP code for users who enabled 2FA.
-// A successful verification also resets the user's score to 0, as required by the exam text.
+// A successful verification also resets the user's score to 0.
 app.post("/api/login-totp", isLoggedIn, async (req, res) => {
 	if (!req.user.totpSecret) {
 		return res.status(400).json({ error: "Cannot authenticate with TOTP" });
@@ -218,9 +233,20 @@ app.delete("/api/sessions/current", (req, res) => {
 // -----------------------------------------------------------------------------
 
 // GET /api/facilities
-// This route also handles "status=?" (optional) query parameter, accessed via req.query.status.
-// Allowed values: "free", "booked". Without it, returns ALL facilities (used by the public
-// homepage to compute per-type counts).
+// Returns the facilities of the sport center, each one with its type:
+// [{ code, isBooked, facilityTypeId, facilityTypeName }, ...]
+//
+// Optional query parameter "status", read from req.query.status:
+//  - "free" or "booked": only the facilities in that state;
+//  - absent: ALL of them, which is what the homepage needs
+//
+// The catch tells the two kinds of rejection apart, following the convention of
+// the DAO:
+//  - reject({ error: ... }) -> the client asked for a filter that does not
+//    exist, so the request itself is wrong: 422;
+//  - reject(err)            -> the DB failed: 500, and the real error is only
+//    logged on the server, never sent to the client.
+
 app.get("/api/facilities", async (req, res) => {
 	try {
 		const facilities = await facilityDao.getFacilities(req.query.status);
@@ -236,23 +262,29 @@ app.get("/api/facilities", async (req, res) => {
 });
 
 // GET /api/equipment
-// Optional query param: facilityTypeId (returns only the equipment rules of that
-// facility type, including minQuantity). Without it, returns all the equipment
-// with its availability (public homepage).
+// Returns the equipment of the sport center, in one of two shapes:
+// [{ id, name, totalQuantity, availableQuantity, minQuantity, facilityTypeId,
+//    facilityTypeName }, ...]
+//
+// Optional query parameter "facilityTypeId", read from req.query.facilityTypeId:
+//  - absent: ALL the equipment, with the name of its facility type. The
+//    homepage fetches it once and then filters it per card.
+//  - a valid id: only the rules of that facility type.
 app.get("/api/equipment", async (req, res) => {
 	try {
 		let equipment;
 
-		// The value is compared with undefined (and not just checked for
-		// truthiness) so that the parameter is always handled explicitly.
+		// If the parameter is present, it must be a valid integer > 0.
 		if (req.query.facilityTypeId !== undefined) {
 			const facilityTypeId = Number(req.query.facilityTypeId);
 			if (!Number.isInteger(facilityTypeId) || facilityTypeId < 1) {
 				return res.status(422).json({ error: "Invalid facilityTypeId value" });
 			}
+			// get the equipment rules for the given facility type
 			equipment =
 				await facilityDao.getEquipmentRulesForFacilityType(facilityTypeId);
 		} else {
+			// get all the equipment rules, with the facility type name (used by the homepage to compute per-type counts)
 			equipment = await facilityDao.getEquipment();
 		}
 
@@ -264,8 +296,7 @@ app.get("/api/equipment", async (req, res) => {
 });
 
 // GET /api/facility-types
-// Returns the list of all facility types (id, name) - used to populate the
-// "type" dropdown in the reservation form.
+// Returns the list of all facility types (id, name)
 app.get("/api/facility-types", async (req, res) => {
 	try {
 		const types = await facilityDao.getAllFacilityTypes();
@@ -290,6 +321,8 @@ app.get("/api/reservations", isLoggedIn, async (req, res) => {
 		);
 		// for each reservation, also load the equipment rented with it
 		const withEquipment = await Promise.all(
+			// the map method here produce an array of promises, one for each reservation,
+			// which are then parallelized with Promise.all
 			reservations.map(async (r) => ({
 				...r,
 				equipment: await reservationDao.getRentsByReservation(r.id),
@@ -304,12 +337,13 @@ app.get("/api/reservations", isLoggedIn, async (req, res) => {
 
 // GET /api/reservations/:id
 // Returns a single reservation belonging to the logged-in user, together with its
-// rented equipment. Used by the client to prefill the "modify reservation" page.
+// rented equipment.
 app.get(
 	"/api/reservations/:id",
 	isLoggedIn,
 	[check("id").isInt({ min: 1 })],
 	async (req, res) => {
+		// check if the middleware validation found any errors in the request parameters
 		const errors = validationResult(req).formatWith(errorFormatter);
 		if (!errors.isEmpty()) {
 			return res.status(422).json(errors.errors);
@@ -344,7 +378,13 @@ app.get(
 // The request body contains: facilityTypeId, an optional facilityCode (absent when
 // the facility is automatically assigned by the system), and the equipment array.
 //
-// The operations are performed in this exact order:
+// The problem here is that the route must update 3 differents database tables (reservations, rents, facilities)
+// in a single operation, but native transaction cannot be used.
+//
+// To solve the problem, an SQL transaction is here emulated by performing the operations in a specific order,
+// and rolling back (manually) everything if any step fails.
+//
+// So, the operations are performed in this exact order:
 //   1. read-only checks (cooldown, equipment rules, user score, facility choice);
 //   2. the equipment is actually taken from the pool (atomic check-and-update);
 //   3. the facility is actually booked (atomic check-and-update);
@@ -364,13 +404,12 @@ app.post(
 		check("equipment.*.quantity").isInt({ min: 0 }),
 	],
 	async (req, res) => {
+		// check if the middleware validation found any errors in the request body
 		const errors = validationResult(req).formatWith(errorFormatter);
 		if (!errors.isEmpty()) {
 			return res.status(422).json(errors.errors);
 		}
 
-		// isInt() accepts also the string "3": the value is explicitly converted to
-		// a number, otherwise the strict comparisons below would always fail.
 		const facilityTypeId = Number(req.body.facilityTypeId);
 		const facilityCode = req.body.facilityCode;
 		const requestedEquipment = req.body.equipment;
@@ -381,7 +420,9 @@ app.post(
 		let createdReservationId = null;
 
 		try {
-			// ---- STEP 1: read-only checks ----------------------------------------
+			// -----------------------------------------------------------------
+			// STEP 1: READ-ONLY CHECKS
+			// -----------------------------------------------------------------
 
 			// The user released a facility of this type less than 30 seconds ago.
 			if (await isRebookingTooEarly(req.user.id, facilityTypeId)) {
@@ -422,16 +463,20 @@ app.post(
 				return res.status(422).json({ error: facilityResult.error });
 			}
 
-			// ---- STEP 2: take the equipment --------------------------------------
-			// This is the real, race-condition-safe availability check: the quantity
-			// is decremented only if it is still available at that exact moment.
+			// -----------------------------------------------------------------
+			// STEP 2: take the equipment
+			// -----------------------------------------------------------------
+
 			const reserveResult = await reserveEquipment(validation.lines);
 			if (reserveResult.error) {
 				return res.status(422).json(reserveResult);
 			}
 			takenLines = validation.lines;
 
-			// ---- STEP 3: take the facility ---------------------------------------
+			// -----------------------------------------------------------------
+			// STEP 3: take the facility
+			// -----------------------------------------------------------------
+
 			const bookResult = await facilityDao.bookFacilityIfFree(
 				facilityResult.code,
 			);
@@ -444,7 +489,9 @@ app.post(
 			}
 			bookedFacilityCode = facilityResult.code;
 
-			// ---- STEP 4: store the reservation and its rent lines ----------------
+			// -----------------------------------------------------------------
+			// STEP 4: store the reservation and its rent lines
+			// -----------------------------------------------------------------
 			createdReservationId = await reservationDao.createReservation(
 				req.user.id,
 				bookedFacilityCode,
@@ -506,7 +553,6 @@ app.put(
 			const reservation =
 				await reservationDao.getReservationById(reservationId);
 
-			// Existence and ownership are checked together (see GET above).
 			if (reservation.error || reservation.userId !== req.user.id) {
 				return res.status(404).json({ error: "Reservation not found." });
 			}
@@ -518,13 +564,14 @@ app.put(
 					.json({ error: "This reservation is not active." });
 			}
 
+			// Retrieve the current rents and the rules for this facility type, to validate the requested changes.
 			const currentRents =
 				await reservationDao.getRentsByReservation(reservationId);
 			const rules = await facilityDao.getEquipmentRulesForFacilityType(
 				reservation.facilityTypeId,
 			);
 
-			// FIRST all the checks are performed (read-only)...
+			// Performing read-only checks first
 			const validation = validateEquipmentChanges(
 				currentRents,
 				rules,
@@ -535,7 +582,7 @@ app.put(
 				return res.status(422).json({ error: validation.error });
 			}
 
-			// ...and ONLY AFTER that the changes are written to the DB.
+			// Writing the changes to the DB
 			const applyResult = await applyEquipmentChanges(
 				reservationId,
 				validation.changes,
@@ -571,24 +618,19 @@ app.delete(
 		const reservationId = Number(req.params.id);
 
 		try {
-			// retrieve the reservation to be cancelled: does it exist, and does it
-			// belong to THIS user?
-			const reservation =
-				await reservationDao.getReservationById(reservationId);
+			// retrieve the reservation to be cancelled
+			const reservation = await reservationDao.getReservationById(reservationId);
+
+			// Checking if the reservation exists and belongs to the logged-in user. If not, return 404.
 			if (reservation.error || reservation.userId !== req.user.id) {
 				return res.status(404).json({ error: "Reservation not found." });
 			}
 
-			// retrieve the rented equipment BEFORE cancelling, so we know how much to give back
+			// retrieve the rented equipment BEFORE cancelling
 			const rents = await reservationDao.getRentsByReservation(reservationId);
 
-			// Mark the reservation as cancelled (this also records released_at).
-			// The DAO only updates a reservation that is still 'active', in the very
-			// same SQL statement: two concurrent DELETE requests on the same
-			// reservation can never both succeed, so the equipment is given back
-			// once and the score is decremented once.
-			const cancelResult =
-				await reservationDao.cancelReservation(reservationId);
+			// Mark the reservation as cancelled 
+			const cancelResult = await reservationDao.cancelReservation(reservationId);
 			if (cancelResult.error) {
 				return res
 					.status(422)
