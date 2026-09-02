@@ -16,15 +16,18 @@
 ### Authentication
 
 - POST `/api/sessions`
-  - Performs the login. Request body: `{ email, password }`.
+  - Performs the login.
+  - Request body: `{ email, password }`.
   - Response: the info of the logged-in user, `{ id, email, name, surname, score, hasTotpEnabled, isTotpVerified }`. 401 if the credentials are wrong.
 - POST `/api/login-totp`
-  - Second step of the login: verifies the TOTP code and resets the score to 0. Request body: `{ code }`. Requires an open session.
+  - Second step of the login: verifies the TOTP code and resets the score to 0.
+  - Request body: `{ code }`. Requires an open session.
   - Response: `{ otp: "authorized" }`. 400 if the user has no TOTP secret, 401 if the code is wrong, expired or already used.
 - GET `/api/sessions/current`
   - Returns the info of the currently logged-in user, in the same format as the login. 401 if there is no session.
 - DELETE `/api/sessions/current`
-  - Performs the logout of the current user. Response: `{}`.
+  - Performs the logout of the current user.
+  - Response: `{}`.
 
 ### Facilities and equipment (public)
 
@@ -32,7 +35,8 @@
   - Returns all the facilities. Optional query parameter `status`, with value `free` or `booked`, to get only those.
   - Response: array of `{ code, isBooked, facilityTypeId, facilityTypeName }`. 422 with `{ error }` if `status` has a value other than the two allowed ones.
 - GET `/api/facility-types`
-  - Returns the list of the facility types. Response: array of `{ id, name }`.
+  - Returns the list of the facility types.
+  - Response: array of `{ id, name }`.
 - GET `/api/equipment`
   - Returns all the equipment. Optional query parameter `facilityTypeId` to get only the equipment of one facility type.
   - Response: array of `{ id, name, totalQuantity, availableQuantity, minQuantity }`, plus `facilityTypeId` and `facilityTypeName` when the query parameter is absent. `minQuantity` greater than 0 means that the equipment is mandatory for that facility type. 422 with `{ error }` if `facilityTypeId` is not a positive integer.
@@ -45,13 +49,16 @@
 - GET `/api/reservations/:id`
   - Returns one reservation of the logged-in user, with its equipment. Same format as above, plus `status` and `releasedAt`. 404 if it does not exist or belongs to another user (the two cases are not told apart on purpose, so that the existence of a reservation of somebody else is not disclosed).
 - POST `/api/reservations`
-  - Creates a new reservation. Request body: `{ facilityTypeId, facilityCode, equipment: [{ equipmentId, quantity }] }`. `facilityCode` is optional: when it is absent the server assigns a free facility of the requested type.
+  - Creates a new reservation.
+  - Request body: `{ facilityTypeId, facilityCode, equipment: [{ equipmentId, quantity }] }`. `facilityCode` is optional: when it is absent the server assigns a free facility of the requested type.
   - Response: the created reservation, with its equipment. 422 with `{ error }` if the facility or the equipment is not available, if the mandatory minimum quantities are not respected, if the requested equipment does not belong to the facility type, if the score of the user does not allow the request, or if fewer than 30 seconds have passed since the user released a facility of the same type.
 - PUT `/api/reservations/:id`
-  - Modifies the equipment of an existing reservation. Request body: `{ equipment: [{ equipmentId, quantity }] }`, the complete list the reservation must end up with: an item missing from the list is treated as reduced to 0.
+  - Modifies the equipment of an existing reservation.
+  - Request body: `{ equipment: [{ equipmentId, quantity }] }`, the complete list the reservation must end up with: an item missing from the list is treated as reduced to 0.
   - Response: the updated reservation, with its equipment. 404 if it does not exist or belongs to another user. 422 with `{ error }` if the reservation is not active any more, if a mandatory item would go below its minimum quantity, if the score of the user does not allow adding equipment, or if the added quantity is not available.
 - DELETE `/api/reservations/:id`
-  - Deletes a reservation: it makes the facility and the equipment available again, records the release time (used for the 30-second rule) and decreases the score of the user by 1. Response: `{}`. 404 if it does not exist or belongs to another user, 422 if it is not active any more.
+  - Deletes a reservation: it makes the facility and the equipment available again, records the release time (used for the 30-second rule) and decreases the score of the user by 1.
+  - Response: `{}`. 404 if it does not exist or belongs to another user, 422 if it is not active any more.
 
 ## Database Tables
 
