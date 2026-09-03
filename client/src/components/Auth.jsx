@@ -149,9 +149,8 @@ function TotpForm(props) {
  *   back to the public home page
  */
 function LoginForm(props) {
-	// The fields start already filled in with the credentials of a test user:
-	// during the evaluation of the project this saves the time of typing them at
-	// every login. They can of course be edited.
+	// For development purposes, the fields are pre-filled with a valid user
+	// in order to save time when testing the login and the 2FA step. 
 	const [email, setEmail] = useState("user2@example.com");
 	const [password, setPassword] = useState("Password2!");
 
