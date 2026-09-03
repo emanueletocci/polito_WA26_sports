@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Container, Card, Button, Alert } from "react-bootstrap";
+import { Container, Card, Button, Alert, Spinner } from "react-bootstrap";
 import { useNavigate, useParams } from "react-router";
 
 import API from "../API.js";
@@ -7,8 +7,6 @@ import { formatName } from "../utils.js";
 import { EquipmentRow } from "./EquipmentSelection.jsx";
 
 /**
- * ReservationEdit
- *
  * INPUT (props, passed as a single object):
  * - user: object, the currently logged-in user (user.score decides whether
  *   equipment may be added)
@@ -30,21 +28,26 @@ function ReservationEdit(props) {
 	// reservationId comes from the URL, e.g. "/reservations/12/edit" -> "12"
 	const { reservationId } = useParams();
 	const navigate = useNavigate();
+
+	// destructuring the props for easier access
 	const { user, showSuccess, handleErrors } = props;
 
 	// reservation: the reservation being modified, as loaded from the server
 	// (null while it is still loading, or if it could not be loaded at all)
 	const [reservation, setReservation] = useState(null);
+
 	// equipmentRules: all the equipment (mandatory and optional) of this
 	// reservation's facility type, e.g. [{ id, name, minQuantity, availableQuantity }, ...]
 	const [equipmentRules, setEquipmentRules] = useState([]);
+
 	// quantities: equipment id -> currently selected quantity (editable)
 	const [quantities, setQuantities] = useState({});
-	// initialQuantities: equipment id -> quantity at page load. It is needed
-	// to compute correctly how much of an item
+
 	const [initialQuantities, setInitialQuantities] = useState({});
 
-	const [loading, setLoading] = useState(true);
+	// waiting: true while the first fetch is running, so that the page is not
+	// rendered before the reservation and its rules have arrived.
+	const [waiting, setWaiting] = useState(true);
 	const [formDisabled, setFormDisabled] = useState(false);
 
 	useEffect(() => {
@@ -52,44 +55,46 @@ function ReservationEdit(props) {
 		// unmounted (e.g. the user leaves the page before the fetch completes).
 		let cancelled = false;
 
-		API.getReservation(reservationId)
-			.then((res) => {
+		const loadReservation = async () => {
+			try {
+				// Getting the reservation and its equipment rules is done in sequence
+				const res = await API.getReservation(reservationId);
 				if (cancelled) return;
 				setReservation(res);
+				
+				// rules contains all the equipment of this facility type, with their minimum and available quantities
+				const rules = await API.getEquipment(res.facilityTypeId);
+				if (cancelled) return;
+				setEquipmentRules(rules);
 
-				return API.getEquipment(res.facilityTypeId).then((rules) => {
-					if (cancelled) return;
-					setEquipmentRules(rules);
-
-					// Starting quantities: for every equipment of this facility type,
-					// how much of it is already part of this reservation (0 if none).
-					const startQuantities = {};
-					rules.forEach((eq) => {
-						const existing = res.equipment.find((e) => e.equipmentId === eq.id);
-						if (existing) startQuantities[eq.id] = existing.quantity;
-						else startQuantities[eq.id] = 0;
-					});
-					setQuantities(startQuantities);
-					setInitialQuantities(startQuantities);
+				// Starting quantities: for every equipment of this facility type,
+				// how much of it is already part of this reservation (0 if none).
+				const startQuantities = {};
+				rules.forEach((eq) => {
+					// res.equipment is the list of the equipment of this reservation
+					// check if this equipment is already present in the reservation, and if so use its quantity, otherwise 0.
+					const existing = res.equipment.find((e) => e.equipmentId === eq.id);
+					if (existing) startQuantities[eq.id] = existing.quantity;
+					else startQuantities[eq.id] = 0;
 				});
-			})
-			.catch((err) => handleErrors(err))
-			.finally(() => {
-				if (!cancelled) setLoading(false);
-			});
+				setQuantities(startQuantities);
+				setInitialQuantities(startQuantities);
+			} catch (err) {
+				handleErrors(err);
+			} finally {
+				if (!cancelled) setWaiting(false);
+			}
+		};
+
+		loadReservation();
 
 		return () => {
 			cancelled = true;
 		};
-		// Only reservationId is listed: handleErrors is omitted on purpose, because
-		// it is re-created at every render of App and listing it would reload the
-		// reservation at every render of the parent. Its behaviour never changes.
 	}, [reservationId]);
 
 	/**
-	 * getEffectiveMin
-	 *
-	 * INPUT (params, positional):
+	 * INPUT (params):
 	 * - equipment: the equipment object being changed
 	 *
 	 * OUTPUT (return value):
@@ -103,32 +108,28 @@ function ReservationEdit(props) {
 	};
 
 	/**
-	 * getEffectiveMax
-	 *
 	 * INPUT (params, positional):
 	 * - equipment: the equipment object being changed
 	 *
 	 * OUTPUT (return value):
 	 * - number: the highest quantity of this item that THIS reservation may end
-	 *   up with. availableQuantity is what is free right now in the whole sport
-	 *   center and does NOT include the units already held by this reservation
-	 *   (they were subtracted from the pool when it was created), so the units
-	 *   already held must be added back. When the score is negative no unit may
-	 *   be added, therefore the current quantity is itself the maximum.
+	 *   up with.
 	 */
 	const getEffectiveMax = (equipment) => {
+		// - availableQuantity: what is free in the sport center right now, not counting the 
+		// units already held by this reservation (they were subtracted from the pool when it was created)
+		// - initialQuantities[equipment.id]: how many units of this equipment are already held by this reservation
+		// So the maximum quantity is here computeted as the sum of the center availability and a delta
 		if (user.score < 0) return initialQuantities[equipment.id];
 		return equipment.availableQuantity + initialQuantities[equipment.id];
 	};
 
 	/**
-	 * handleQuantityChange
 	 *
 	 * INPUT (params, positional):
 	 * - equipment: the equipment object whose quantity is being changed
 	 * - delta: number, how much to add to the current quantity (+1 or -1)
 	 *
-	 * OUTPUT: none (the "quantities" state is updated)
 	 */
 	const handleQuantityChange = (equipment, delta) => {
 		setQuantities((prev) => {
@@ -144,7 +145,7 @@ function ReservationEdit(props) {
 			if (next > effectiveMax) next = effectiveMax;
 
 			// A copy of the whole object is created, so prev is never modified
-			// (React state must always be treated as immutable).
+			// in order to leave the state immutable.
 			const updated = { ...prev };
 			updated[equipment.id] = next;
 			return updated;
@@ -152,15 +153,11 @@ function ReservationEdit(props) {
 	};
 
 	/**
-	 * handleSubmit
-	 *
 	 * INPUT (params, positional):
 	 * - event: the (synthetic) form submit / button click event
-	 *
-	 * OUTPUT: none (the reservation is updated on the server, then the user is
-	 * sent back to the list of reservations)
 	 */
 	const handleSubmit = (event) => {
+		// prevent the default form submission, which would reload the page and lose the state
 		event.preventDefault();
 
 		// The full equipment list is sent (mandatory items with at least their
@@ -183,10 +180,10 @@ function ReservationEdit(props) {
 			.finally(() => setFormDisabled(false));
 	};
 
-	if (loading) {
+	if (waiting) {
 		return (
 			<Container fluid className="py-4">
-				<p className="text-muted">Loading reservation...</p>
+				<Spinner />
 			</Container>
 		);
 	}
@@ -241,8 +238,6 @@ function ReservationEdit(props) {
 				key={equipment.id}
 				equipment={equipment}
 				quantity={quantity}
-				// Removing is always allowed, even with a negative score, down to
-				// the minimum required for this facility type.
 				canDecrease={quantity > getEffectiveMin(equipment)}
 				canIncrease={canAdd && quantity < getEffectiveMax(equipment)}
 				handleQuantityChange={handleQuantityChange}
@@ -270,7 +265,7 @@ function ReservationEdit(props) {
 	return (
 		<Container fluid className="py-4">
 			<h1 className="mb-4">
-				Modify reservation — {formatName(reservation.facilityTypeName)} (
+				Modify reservation: {formatName(reservation.facilityTypeName)} (
 				{reservation.facilityCode})
 			</h1>
 
