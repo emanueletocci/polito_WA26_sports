@@ -17,13 +17,22 @@ import EquipmentSelection from "./EquipmentSelection.jsx";
 /**
  * buildInitialQuantities
  *
- * INPUT (params, positional):
+ * Builds the starting value of the "quantities" state when a facility type is
+ * selected: every mandatory item starts already at its minimum (so the form
+ * shows a bookable reservation immediately, with nothing missing), and every
+ * optional item starts at 0 (nothing extra is assumed).
+ *
+ * These starting values are not just a convenient default: they are exactly the
+ * maximum a user with a negative score is allowed to submit. So for that user
+ * this object is also the final one, since every "+" button stays disabled and
+ * nothing above it can ever be reached.
+ *
+ * INPUT (params):
  * - rules: array of equipment objects, e.g. [{ id, minQuantity, availableQuantity }, ...]
  *
  * OUTPUT (return value):
- * - object mapping equipment id -> starting quantity: mandatory items start at
- *   their minimum required quantity, optional items start at 0. This is also
- *   exactly what a user with a negative score is allowed to request.
+ * - object mapping equipment id -> starting quantity, e.g. { 1: 2, 2: 3, 3: 0 }
+ *   for tennis (2 rackets and 3 balls required, the towel optional)
  */
 function buildInitialQuantities(rules) {
 	const quantities = {};
@@ -41,14 +50,25 @@ function buildInitialQuantities(rules) {
 /**
  * findUnavailableMandatory
  *
- * INPUT (params, positional):
+ * Checks whether a facility of the selected type can be booked at all. A
+ * reservation always includes the mandatory minimum quantities, so if the sport
+ * center does not have enough units left of even one mandatory item, no
+ * reservation of that type is possible: the user must be told the reason and
+ * the form must be locked.
+ *
+ * The two conditions of the filter are both needed:
+ *  - minQuantity > 0 keeps only the mandatory items, since a missing optional
+ *    one does not prevent the booking;
+ *  - minQuantity > availableQuantity is the actual shortage, e.g. soccer needs
+ *    10 pairs of shoes and only 6 are free.
+ *
+ * INPUT (params):
  * - rules: array of equipment objects of the selected facility type
  *
  * OUTPUT (return value):
- * - array of the mandatory equipment whose minimum required quantity exceeds the
- *   quantity currently available. When it is not empty the facility cannot be
- *   booked at all, as required by the specification ("when it is known that not
- *   enough equipment is available, booking the facility must not be allowed").
+ * - array of the mandatory equipment that cannot be satisfied. Empty means the
+ *   type can be booked. Book uses the names in it to build the error message,
+ *   which is why the objects are returned instead of a plain boolean.
  */
 function findUnavailableMandatory(rules) {
 	return rules.filter(
@@ -75,11 +95,6 @@ function findUnavailableMandatory(rules) {
  */
 function Book(props) {
 	const navigate = useNavigate();
-
-	// The props used inside the effects are destructured here, and not read as
-	// props.something inside them: this way every effect declares exactly which
-	// value it depends on, instead of depending on the whole props object (which
-	// changes identity at every render of the parent).
 	const { user, showSuccess, handleErrors } = props;
 
 	const [facilityTypes, setFacilityTypes] = useState([]);
@@ -96,23 +111,17 @@ function Book(props) {
 
 	// A negative score means the user may only book with the mandatory minimum
 	// quantities: no optional equipment and no extra mandatory units.
-	// NB: this is only a convenience for the user. The rule is enforced by the
-	// server, which is the only place where it can actually be trusted.
+
 	const canRequestExtra = user.score >= 0;
 
-	// ---- Effect 1: load the list of facility types, once, when the page mounts ----
-	// The empty dependency array means: run only after the first render.
+	// Loading the list of facility
 	useEffect(() => {
 		API.getFacilityTypes()
 			.then((types) => setFacilityTypes(types))
 			.catch((err) => handleErrors(err));
-		// handleErrors is deliberately NOT listed among the dependencies: it is
-		// re-created at every render of App, so listing it would make this fetch
-		// run again at every render of the parent. Its behaviour never changes
-		// (it only calls setMessage), so the captured version is always equivalent.
 	}, []);
 
-	// ---- Effect 2: react to a change of the selected facility type ----
+	// react to a change of the selected facility type
 	// It runs again every time selectedTypeId changes. All the actions below are
 	// consequences of the SAME event (the user picked a different type), so they
 	// live in a single effect instead of several ones with the same dependency.
@@ -148,22 +157,29 @@ function Book(props) {
 				setQuantities(buildInitialQuantities(rules));
 			})
 			.catch((err) => handleErrors(err));
-		// Only selectedTypeId is listed: handleErrors is omitted on purpose, see
-		// the note on the first effect above.
 	}, [selectedTypeId]);
 
 	/**
 	 * handleQuantityChange
 	 *
-	 * INPUT (params, positional):
+	 * Called when the user clicks the "+" or "-" button of one equipment row: it
+	 * adds delta to the quantity currently selected for that item and saves the
+	 * new value in the "quantities" state, so that the row re-renders with the
+	 * updated number.
+	 *
+	 * The new value is clamped between two limits:
+	 *  - the lower one is minQuantity, which is the mandatory minimum of this
+	 *    facility type (0 for optional equipment, so those can go down to none);
+	 *  - the upper one is availableQuantity, what is free in the sport center
+	 *    right now. This reservation does not exist yet, so it holds no unit and
+	 *    there is nothing to add back (unlike ReservationEdit, where the units
+	 *    already rented must be counted in).
+	 * INPUT (params):
 	 * - equipment: the equipment object whose quantity is being changed
 	 *   (it must have id, minQuantity, availableQuantity)
 	 * - delta: number, how much to add to the current quantity (+1 or -1)
 	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "quantities"
-	 *   state, keeping the value between the minimum required and the quantity
-	 *   currently available.
+	 * OUTPUT: none (the "quantities" state is updated)
 	 */
 	const handleQuantityChange = (equipment, delta) => {
 		setQuantities((prev) => {
@@ -232,7 +248,7 @@ function Book(props) {
 			.finally(() => setFormDisabled(false));
 	};
 
-	// ---- Mandatory equipment that cannot be satisfied ----
+	// Mandatory equipment that cannot be satisfied
 	// When the sport center does not have enough mandatory equipment left, the
 	// facility cannot be booked at all: the reason is shown and the form is locked.
 	const unavailableMandatory = findUnavailableMandatory(equipmentRules);
@@ -250,7 +266,7 @@ function Book(props) {
 		);
 	}
 
-	// ---- Warning for users with a negative score ----
+	// Warning for users with a negative score
 	let negativeScoreAlert = null;
 	if (!canRequestExtra) {
 		negativeScoreAlert = (
@@ -262,7 +278,7 @@ function Book(props) {
 		);
 	}
 
-	// ---- The equipment card makes sense only after a type has been chosen ----
+	// The equipment card makes sense only after a type has been chosen
 	let equipmentCard = null;
 	if (selectedTypeId) {
 		equipmentCard = (
@@ -276,7 +292,7 @@ function Book(props) {
 		);
 	}
 
-	// ---- When is the reservation ready to be sent? ----
+	// When is the reservation ready to be sent?
 	// A type must be chosen, in manual mode also a facility, and the mandatory
 	// equipment must be available.
 	let canSubmit = true;
@@ -284,7 +300,7 @@ function Book(props) {
 	if (mode === "manual" && !selectedFacilityCode) canSubmit = false;
 	if (unavailableMandatory.length > 0) canSubmit = false;
 
-	// ---- Label of the submit button ----
+	//  Label of the submit button
 	let submitLabel;
 	if (formDisabled) {
 		submitLabel = "Saving...";
