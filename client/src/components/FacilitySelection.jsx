@@ -26,7 +26,7 @@ import { formatName } from "../utils.js";
  *   selection mode, and the list of the free facilities of the chosen type)
  */
 function FacilitySelection(props) {
-	// ---- What to show in the list of free facilities ----
+	//  What to show in the list of free facilities 
 	// The content is computed here, with a standard if/else, instead of writing
 	// a ternary inside the JSX.
 	let freeFacilitiesContent;
@@ -58,7 +58,7 @@ function FacilitySelection(props) {
 		));
 	}
 
-	// ---- The list of facilities is shown only in "manual" mode ----
+	// The list of facilities is shown only in "manual" mode 
 	let manualFacilityBlock = null;
 	if (props.mode === "manual") {
 		manualFacilityBlock = (
@@ -66,7 +66,7 @@ function FacilitySelection(props) {
 		);
 	}
 
-	// ---- Mode buttons and facility list appear only after a type is chosen ----
+	// Mode buttons and facility list appear only after a type is chosen 
 	let modeAndFacilityBlock = null;
 	if (props.selectedTypeId) {
 		modeAndFacilityBlock = (
