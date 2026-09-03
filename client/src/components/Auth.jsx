@@ -159,7 +159,7 @@ function LoginForm(props) {
 	/**
 	 * handleSubmit
 	 *
-	 * INPUT (params, positional):
+	 * INPUT (params):
 	 * - event: the (synthetic) form submit event
 	 *
 	 * OUTPUT (return value):
