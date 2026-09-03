@@ -115,7 +115,9 @@ A detailed overview of React Components is available [here](_DOCS/react_componen
 
 ## Screenshot
 
-![Screenshot of the booking page](./img/homepage_login.png)
+![Screenshot of the homepage](./img/homepage_login.png)
+
+![Screenshot of the booking page](./img/booking.png)
 
 ## Users Credentials
 
