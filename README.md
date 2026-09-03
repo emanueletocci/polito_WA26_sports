@@ -16,49 +16,80 @@
 ### Authentication
 
 - POST `/api/sessions`
-  - Performs the login.
-  - Request body: `{ email, password }`.
-  - Response: the info of the logged-in user, `{ id, email, name, surname, score, hasTotpEnabled, isTotpVerified }`. 401 if the credentials are wrong.
+  - **Description**: Performs user login using email and password.
+  - **Request body**: A JSON object containing `"email"` and `"password"` (e.g., `{"email": "user2@example.com", "password": "Password2!"}`).
+  - **Response body**: A JSON object with the authenticated user's information, including `id`, `email`, `name`, `surname`, `score`, `totpSecret`, and `lastTotpStep`.
+  - **Error responses**: `401 Unauthorized` (Incorrect email or password).
+
 - POST `/api/login-totp`
-  - Second step of the login: verifies the TOTP code and resets the score to 0.
-  - Request body: `{ code }`. Requires an open session.
-  - Response: `{ otp: "authorized" }`. 400 if the user has no TOTP secret, 401 if the code is wrong, expired or already used.
+  - **Description**: Performs the second authentication step by verifying the TOTP code for users with 2FA enabled.
+  - **Request body**: A JSON object containing the 6-digit TOTP code (e.g., `{"code": "478230"}`).
+  - **Response body**: A JSON object confirming successful authorization `{"otp": "authorized"}`.
+  - **Error responses**: `401 Unauthorized` (Not authenticated / Invalid TOTP), `400 Bad Request` (Cannot authenticate with TOTP).
+
 - GET `/api/sessions/current`
-  - Returns the info of the currently logged-in user, in the same format as the login. 401 if there is no session.
+  - **Description**: Checks if the current user is authenticated and returns their session information.
+  - **Request body**: None.
+  - **Response body**: A JSON object with the authenticated user's details.
+  - **Error responses**: `401 Unauthorized` (Not authenticated).
+
 - DELETE `/api/sessions/current`
-  - Performs the logout of the current user.
-  - Response: `{}`.
+  - **Description**: Logs out the currently authenticated user and clears the session.
+  - **Request body**: None.
+  - **Response body**: An empty JSON object `{}`.
+  - **Error responses**: None (Returns 200 even if already logged out).
 
 ### Facilities and equipment (public)
 
 - GET `/api/facilities`
-  - Returns all the facilities. Optional query parameter `status`, with value `free` or `booked`, to get only those.
-  - Response: array of `{ code, isBooked, facilityTypeId, facilityTypeName }`. 422 with `{ error }` if `status` has a value other than the two allowed ones.
-- GET `/api/facility-types`
-  - Returns the list of the facility types.
-  - Response: array of `{ id, name }`.
+  - **Description**: Retrieves all facilities of the sport center. It accepts an optional query parameter `status` (e.g., `?status=free` or `?status=booked`) to filter the results.
+  - **Request body**: None.
+  - **Response body**: An array of facility objects containing `code`, `isBooked`, `facilityTypeId`, and `facilityTypeName`.
+  - **Error responses**: `422 Unprocessable Entity` (Invalid filter value).
+
 - GET `/api/equipment`
-  - Returns all the equipment. Optional query parameter `facilityTypeId` to get only the equipment of one facility type.
-  - Response: array of `{ id, name, totalQuantity, availableQuantity, minQuantity }`, plus `facilityTypeId` and `facilityTypeName` when the query parameter is absent. `minQuantity` greater than 0 means that the equipment is mandatory for that facility type. 422 with `{ error }` if `facilityTypeId` is not a positive integer.
+  - **Description**: Retrieves equipment rules and availability. It accepts an optional query parameter `facilityTypeId` to filter equipment for a specific facility type.
+  - **Request body**: None.
+  - **Response body**: An array of equipment objects containing `id`, `name`, `totalQuantity`, `availableQuantity`, `minQuantity`, `facilityTypeId`, and `facilityTypeName`.
+  - **Error responses**: `422 Unprocessable Entity` (Invalid facilityTypeId value).
+
+- GET `/api/facility-types`
+  - **Description**: Retrieves the list of all available facility types.
+  - **Request body**: None.
+  - **Response body**: An array of facility type objects containing `id` and `name`.
+  - **Error responses**: `500 Internal Server Error` (Database error).
 
 ### Reservations (login required)
 
 - GET `/api/reservations`
-  - Returns the active reservations of the logged-in user, each one with its equipment.
-  - Response: array of `{ id, userId, facilityCode, facilityTypeId, facilityTypeName, createdAt, equipment: [{ reservationId, equipmentId, name, quantity, minQuantity }] }`.
+  - **Description**: Retrieves the list of active reservations for the logged-in user, including the rented equipment for each reservation.
+  - **Request body**: None.
+  - **Response body**: An array of reservation objects, each containing a nested `equipment` array with the rented items (eg. `{ id, userId, facilityCode, facilityTypeId, facilityTypeName, createdAt, equipment: [{ reservationId, equipmentId, name, quantity, minQuantity }] }`).
+  - **Error responses**: `401 Unauthorized` (Not authenticated).
+
 - GET `/api/reservations/:id`
-  - Returns one reservation of the logged-in user, with its equipment. Same format as above, plus `status` and `releasedAt`. 404 if it does not exist or belongs to another user (the two cases are not told apart on purpose, so that the existence of a reservation of somebody else is not disclosed).
+  - **Description**: Retrieves a single reservation by its ID (only if it belongs to the logged-in user), along with its rented equipment.
+  - **Request body**: None.
+  - **Response body**: A JSON object representing the reservation, including its associated `equipment` array.
+  - **Error responses**: `401 Unauthorized` (Not authenticated), `404 Not Found` (Reservation not found or belongs to another user), `422 Unprocessable Entity` (Validation errors on ID).
+
 - POST `/api/reservations`
-  - Creates a new reservation.
-  - Request body: `{ facilityTypeId, facilityCode, equipment: [{ equipmentId, quantity }] }`. `facilityCode` is optional: when it is absent the server assigns a free facility of the requested type.
-  - Response: the created reservation, with its equipment. 422 with `{ error }` if the facility or the equipment is not available, if the mandatory minimum quantities are not respected, if the requested equipment does not belong to the facility type, if the score of the user does not allow the request, or if fewer than 30 seconds have passed since the user released a facility of the same type.
+  - **Description**: Creates a new reservation for the logged-in user, books a facility, and reserves the requested equipment.
+  - **Request body**: A JSON object specifying `facilityTypeId`, an optional `facilityCode`, and an `equipment` array with `equipmentId` and `quantity` for each item (e.g. `{ facilityTypeId, facilityCode, equipment: [{ equipmentId, quantity }] }`).
+  - **Response body**: A JSON object of the newly created reservation, including the nested `equipment` array.
+  - **Error responses**: `401 Unauthorized` (Not authenticated), `422 Unprocessable Entity` (Validation errors, rebooking cooldown, missing facility, invalid equipment request, or facility already booked).
+
 - PUT `/api/reservations/:id`
-  - Modifies the equipment of an existing reservation.
-  - Request body: `{ equipment: [{ equipmentId, quantity }] }`, the complete list the reservation must end up with: an item missing from the list is treated as reduced to 0.
-  - Response: the updated reservation, with its equipment. 404 if it does not exist or belongs to another user. 422 with `{ error }` if the reservation is not active any more, if a mandatory item would go below its minimum quantity, if the score of the user does not allow adding equipment, or if the added quantity is not available.
+  - **Description**: Modifies the rented equipment of an existing active reservation belonging to the logged-in user.
+  - **Request body**: A JSON object containing an `equipment` array with the updated `equipmentId` and `quantity` values.
+  - **Response body**: A JSON object representing the updated reservation, including the modified `equipment` array.
+  - **Error responses**: `401 Unauthorized` (Not authenticated), `404 Not Found` (Reservation not found or belongs to another user), `422 Unprocessable Entity` (Validation errors, reservation not active, or invalid equipment changes),.
+
 - DELETE `/api/reservations/:id`
-  - Deletes a reservation: it makes the facility and the equipment available again, records the release time (used for the 30-second rule) and decreases the score of the user by 1.
-  - Response: `{}`. 404 if it does not exist or belongs to another user, 422 if it is not active any more.
+  - **Description**: Cancels an active reservation, frees the associated facility and equipment, and applies any penalty to the user's score.
+  - **Request body**: None.
+  - **Response body**: An empty JSON object `{}` upon successful cancellation.
+  - **Error responses**: `401 Unauthorized` (Not authenticated), `404 Not Found` (Reservation not found or belongs to another user), `422 Unprocessable Entity` (Validation errors or reservation not active).
 
 ## Database Tables
 
