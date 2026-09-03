@@ -111,7 +111,7 @@
 - `Reservations` (in `Reservations.jsx`): list of the reservations of the user, with the actions to modify and delete them.
 - `ReservationEdit` (in `ReservationEdit.jsx`): page that modifies the equipment of one reservation. Every item can be increased or decreased, but a mandatory one never below its minimum quantity.
 
-A detailed overview of React Components is available [here](react-components-overview.md/react_components/react-components-overview.md).
+A detailed overview of React Components is available [here](./react-components-overview.md).
 
 ## Screenshot
 
