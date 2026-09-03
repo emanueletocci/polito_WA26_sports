@@ -239,13 +239,6 @@ app.delete("/api/sessions/current", (req, res) => {
 // Optional query parameter "status", read from req.query.status:
 //  - "free" or "booked": only the facilities in that state;
 //  - absent: ALL of them, which is what the homepage needs
-//
-// The catch tells the two kinds of rejection apart, following the convention of
-// the DAO:
-//  - reject({ error: ... }) -> the client asked for a filter that does not
-//    exist, so the request itself is wrong: 422;
-//  - reject(err)            -> the DB failed: 500, and the real error is only
-//    logged on the server, never sent to the client.
 
 app.get("/api/facilities", async (req, res) => {
 	try {
