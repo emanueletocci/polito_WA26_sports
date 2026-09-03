@@ -77,14 +77,18 @@ function EquipmentTable(props) {
 /**
  * getStockStatus
  *
- * INPUT (params, positional):
- * - availableQuantity: number, how many units of this equipment are available
+ * Turns a raw number into what the badge of EquipmentStockRow actually needs to
+ * render: a react-bootstrap variant name and the text to show inside it.
+ *
+ * INPUT (params):
+ * - availableQuantity: number, how many units of this equipment are free right
+ *   now in the whole sport center
  *
  * OUTPUT (return value):
- * - object { color, label }:
- *   - color: string, the name of a react-bootstrap variant used as the
- *     background of the badge ("success" = green, "danger" = red)
- *   - label: string, the text shown inside the badge
+ * - object { color, label }, e.g. { color: "success", label: "Available" } or
+ *   { color: "danger", label: "Out of stock" }. "color" is not a CSS color, it
+ *   is the name of a react-bootstrap Badge variant ("success" = green,
+ *   "danger" = red), used directly as <Badge bg={status.color}>.
  */
 function getStockStatus(availableQuantity) {
 	if (availableQuantity > 0) {
