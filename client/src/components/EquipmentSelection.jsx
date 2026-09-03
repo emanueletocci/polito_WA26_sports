@@ -26,7 +26,9 @@ function EquipmentSelection(props) {
 	const mandatory = props.equipmentRules.filter((eq) => eq.minQuantity > 0);
 	const optional = props.equipmentRules.filter((eq) => eq.minQuantity === 0);
 
-	// ---- Mandatory section ----
+	// -------------------------------------------------------------------------
+	// MANDATORY SECTION
+	// -------------------------------------------------------------------------
 	// "-" is enabled only above the minimum, "+" only if extra items are allowed
 	// and there is still something available.
 	let mandatoryContent;
@@ -49,7 +51,9 @@ function EquipmentSelection(props) {
 		));
 	}
 
-	// ---- Optional section ----
+	// -------------------------------------------------------------------------
+	// OPTIONAL SECTION
+	// -------------------------------------------------------------------------
 	let optionalContent;
 	if (optional.length === 0) {
 		optionalContent = <p className="text-muted">N/A</p>;
