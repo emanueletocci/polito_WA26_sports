@@ -6,7 +6,6 @@ import API from "../API.js";
 import { formatName } from "../utils.js";
 
 /**
- * ReservationRow
  *
  * INPUT (props, passed as a single object):
  * - reservation: one reservation object { id, facilityTypeName, facilityCode,
@@ -29,13 +28,7 @@ function ReservationRow(props) {
 		equipmentContent = <span className="text-muted">N/A</span>;
 	} else {
 		equipmentContent = reservation.equipment.map((eq) => (
-			<Badge
-				key={eq.equipmentId}
-				bg="info"
-				text="dark"
-				pill
-				className="me-1 mb-1"
-			>
+			<Badge key={eq.equipmentId} bg="info" text="dark" className="me-1 mb-1">
 				{formatName(eq.name)} &times;{eq.quantity}
 			</Badge>
 		));
@@ -45,13 +38,11 @@ function ReservationRow(props) {
 		<tr>
 			<td>{formatName(reservation.facilityTypeName)}</td>
 			<td>
-				<Badge bg="primary" pill>
-					{reservation.facilityCode}
-				</Badge>
+				<Badge bg="primary">{reservation.facilityCode}</Badge>
 			</td>
 			<td>{equipmentContent}</td>
 			<td>
-				{/* "Edit" goes to the page that modifies this specific reservation */}
+				{/* "Edit" button redirect to the page that modifies this specific reservation */}
 				<Button
 					as={Link}
 					to={"/reservations/" + reservation.id + "/edit"}
@@ -77,7 +68,6 @@ function ReservationRow(props) {
 }
 
 /**
- * Reservations
  *
  * INPUT (props, passed as a single object):
  * - refreshUserInfo: function, re-fetches the info of the current user (needed
@@ -90,15 +80,15 @@ function ReservationRow(props) {
  *   reservations) or a table with one row per reservation
  */
 function Reservations(props) {
-	// The props used inside the effect and the handlers are destructured here,
-	// instead of being read as props.something inside them.
 	const { refreshUserInfo, showSuccess, handleErrors } = props;
 
 	// reservations: the active reservations of the current user
 	const [reservations, setReservations] = useState([]);
+
 	// disabled: true while a delete request is in progress, to avoid sending the
 	// same request twice with a double click
 	const [disabled, setDisabled] = useState(false);
+
 	// waiting: true while the first fetch is running. Without it the "no
 	// reservations" message would be shown for an instant even to a user who has
 	// some, because the state starts as an empty array.
@@ -110,23 +100,11 @@ function Reservations(props) {
 			.then((data) => setReservations(data))
 			.catch((err) => handleErrors(err))
 			.finally(() => setWaiting(false));
-		// handleErrors is deliberately NOT listed among the dependencies: it is
-		// re-created at every render of App, so listing it would make this fetch
-		// run again at every render of the parent. Its behaviour never changes
-		// (it only calls setMessage), so the captured version is always equivalent.
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	/**
-	 * handleDelete
-	 *
-	 * INPUT (params, positional):
+	 * INPUT (params):
 	 * - reservationId: the id of the reservation to delete
-	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it asks the server to delete
-	 *   the reservation, then updates the list, shows the outcome, and refreshes
-	 *   the user info (the score changed on the server).
 	 */
 	const handleDelete = (reservationId) => {
 		setDisabled(true);
