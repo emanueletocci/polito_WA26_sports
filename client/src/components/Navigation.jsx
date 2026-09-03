@@ -15,6 +15,7 @@ import { LoginButton, LogoutButton } from "./Auth.jsx";
  * OUTPUT (return value):
  * - JSX: the top navigation bar, showing either a Login button (guest)
  *   or the user's name/score/reservation links/Logout button (logged in)
+ * 
  */
 function Navigation({ loggedIn, user, loggedInTotp, logout }) {
 	// authSection: the right-hand side content of the navbar.

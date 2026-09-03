@@ -20,6 +20,7 @@ import Navigation from "./Navigation.jsx";
  * - JSX: the persistent page shell, made of the top Navigation bar, the feedback
  *   Alert (when present), and whatever the currently matched route renders
  *   through <Outlet />
+ * 
  */
 function Layout({ loggedIn, user, loggedInTotp, logout, message, setMessage }) {
 	let messageAlert = null;
