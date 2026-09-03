@@ -15,19 +15,15 @@ import ReservationEdit from "./components/ReservationEdit.jsx";
 import API from "./API.js";
 
 /**
- * App
- *
- * INPUT: none (this is the root component of the application)
  *
  * OUTPUT (return value):
  * - the full set of application routes (<Routes>), with the authentication state
  *   (loggedIn, loggedInTotp, user) and the feedback message shared with the pages
  */
 function App() {
-	// loggedIn: whether the user has a valid session (passed username/password)
+	// loggedIn: whether the user has a active valid session (if he is logged in)
 	const [loggedIn, setLoggedIn] = useState(false);
 	// loggedInTotp: whether the user has also completed the 2FA (TOTP) step,
-	// for users who have 2FA enabled
 	const [loggedInTotp, setLoggedInTotp] = useState(false);
 
 	const [user, setUser] = useState(null);
@@ -36,8 +32,7 @@ function App() {
 	// { text, type } where type is a react-bootstrap Alert variant
 	// ("success" for a completed operation, "danger" for a failure).
 	// null means "nothing to show".
-	// NB: only the last message is kept. A more complex application would need a
-	// queue of messages.
+
 	const [message, setMessage] = useState(null);
 
 	// On first mount, check whether a session already exists server-side
@@ -57,29 +52,23 @@ function App() {
 	}, []);
 
 	/**
-	 * Shows a green confirmation message to the user.
+	 * Shows a green confirmation message to the user (updating the state)
 	 *
-	 * INPUT (params, positional):
+	 * INPUT (params):
 	 * - text: string, the message to display
 	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "message" state,
-	 *   which makes the Alert appear inside the Layout.
 	 */
 	const showSuccess = (text) => {
 		setMessage({ text: text, type: "success" });
 	};
 
 	/**
-	 * Shows a red error message to the user, extracting the text from whatever the
-	 * failed API call rejected with.
+	 * Displays an error message in red to the user, extracting the text from the error 
+	 * message returned by the failed API call.
 	 *
-	 * INPUT (params, positional):
+	 * INPUT (params):
 	 * - err: the rejection value. It can be an object { error: <message> }, an
 	 *   array of express-validator errors, a plain string, or something unknown.
-	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "message" state.
 	 */
 	const handleErrors = (err) => {
 		let text = "";
@@ -95,13 +84,8 @@ function App() {
 	 * Handles the login process.
 	 * It requires an email and a password inside a "credentials" object.
 	 *
-	 * INPUT (params, positional):
+	 * INPUT (params):
 	 * - credentials: object { email, password }
-	 *
-	 * OUTPUT (return value):
-	 * - none (undefined) on success: updates user/loggedIn state as a side effect.
-	 * - on failure: does NOT swallow the error, it re-throws it, so that the caller
-	 *   (LoginForm) can catch it and display it next to the form.
 	 */
 	const handleLogin = async (credentials) => {
 		try {
@@ -117,13 +101,6 @@ function App() {
 
 	/**
 	 * Handles the logout process.
-	 *
-	 * INPUT: none
-	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it calls the API to destroy
-	 *   the session, then resets loggedIn/loggedInTotp/user/message regardless of
-	 *   whether the API call succeeded or failed.
 	 */
 	const handleLogout = async () => {
 		try {
@@ -144,11 +121,6 @@ function App() {
 	 * the client state (e.g. the score shown in the navbar) reflects a change
 	 * caused by an operation performed elsewhere (e.g. deleting a reservation,
 	 * or the score reset after a TOTP login).
-	 *
-	 * INPUT: none
-	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it updates the "user" state.
 	 */
 	const refreshUserInfo = async () => {
 		try {
@@ -178,7 +150,6 @@ function App() {
 					/>
 				}
 			>
-				{/* index route: what renders at exactly "/" inside the Layout */}
 				<Route
 					index
 					element={<Home handleErrors={handleErrors} loggedIn={loggedIn} />}
@@ -187,8 +158,6 @@ function App() {
 				{/*
 					"reservations" and "book" are protected routes: only accessible
 					if loggedIn is true, otherwise the user is redirected to "/login".
-					NB: this is only a convenience for the user, the real protection is
-					on the server, where every API checks the session.
 				*/}
 				<Route
 					path="reservations"
@@ -233,15 +202,9 @@ function App() {
 					}
 				/>
 
-				{/* Any other URL under "/": show a page with a link back to the home */}
+				{/* Catch-all route for any other URL under "/": show 404 page */}
 				<Route path="*" element={<NotFound />} />
 			</Route>
-
-			{/*
-				"/login" is outside the Layout (no navbar wrapper needed there).
-				All the auth-related state and setters are passed down to
-				LoginWithTotp, which decides what to actually show.
-			*/}
 			<Route
 				path="/login"
 				element={
