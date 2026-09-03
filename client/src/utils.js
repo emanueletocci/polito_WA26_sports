@@ -44,7 +44,7 @@ facilities = [
 */
 
 function groupFacilitiesByType(facilities) {
-	// Reduce iterates through elements, combining the current item with an accumulator value via callback `f`.
+	// Reduce iterates through elements, combining the current item with an accumulator value via callback.
 	// reduce(callback, initialValue) where callback is a function that takes the accumulator and the current item, and initialValue is the starting value for the accumulator.
 
 	return facilities.reduce((groupsAccumulator, facility) => {
