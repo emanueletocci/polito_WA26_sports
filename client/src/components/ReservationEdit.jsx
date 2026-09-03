@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router";
 
 import API from "../API.js";
 import { formatName } from "../utils.js";
-import { EquipmentRow } from "./EquipmentSelection.jsx";
+import EquipmentRow from "./EquipmentRow.jsx";
 
 /**
  * INPUT (props, passed as a single object):

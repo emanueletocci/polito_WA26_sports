@@ -3,7 +3,11 @@ import { Table, Badge } from "react-bootstrap";
 import { formatName } from "../utils.js";
 
 /**
- * EquipmentRow
+ * EquipmentStockRow
+ *
+ * One row of the availability table of the public homepage. It is named after
+ * the STOCK it shows, so that it is never confused with the EquipmentRow of
+ * EquipmentRow.jsx, which is the editable line with the +/- controls.
  *
  * INPUT (props, passed as a single object):
  * - equipment: one equipment object
@@ -13,7 +17,7 @@ import { formatName } from "../utils.js";
  * - JSX: one <tr> describing this equipment, with a coloured badge showing
  *   whether it can still be rented
  */
-function EquipmentRow(props) {
+function EquipmentStockRow(props) {
 	const equipment = props.equipment;
 
 	// getStockStatus is called only ONCE per row, and its result is stored.
@@ -63,7 +67,7 @@ function EquipmentTable(props) {
 			<tbody>
 				{/* One row per equipment type */}
 				{props.equipmentList.map((eq) => (
-					<EquipmentRow key={eq.id} equipment={eq} />
+					<EquipmentStockRow key={eq.id} equipment={eq} />
 				))}
 			</tbody>
 		</Table>
