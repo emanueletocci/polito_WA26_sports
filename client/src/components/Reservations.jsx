@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Container, Table, Badge, Button } from "react-bootstrap";
+import { Container, Table, Badge, Button, Spinner } from "react-bootstrap";
 import { Link } from "react-router";
 
 import API from "../API.js";
@@ -99,16 +99,22 @@ function Reservations(props) {
 	// disabled: true while a delete request is in progress, to avoid sending the
 	// same request twice with a double click
 	const [disabled, setDisabled] = useState(false);
+	// waiting: true while the first fetch is running. Without it the "no
+	// reservations" message would be shown for an instant even to a user who has
+	// some, because the state starts as an empty array.
+	const [waiting, setWaiting] = useState(true);
 
 	// Load the reservations once, when the page mounts.
 	useEffect(() => {
 		API.getReservations()
 			.then((data) => setReservations(data))
-			.catch((err) => handleErrors(err));
+			.catch((err) => handleErrors(err))
+			.finally(() => setWaiting(false));
 		// handleErrors is deliberately NOT listed among the dependencies: it is
 		// re-created at every render of App, so listing it would make this fetch
 		// run again at every render of the parent. Its behaviour never changes
 		// (it only calls setMessage), so the captured version is always equivalent.
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	/**
@@ -138,10 +144,13 @@ function Reservations(props) {
 			.finally(() => setDisabled(false));
 	};
 
-	// What to show instead of the table when the user has no reservation yet is
-	// decided before the return, with a standard if/else.
+	// What to show instead of the table while the reservations are being loaded,
+	// and when the user has no reservation yet, is decided before the return,
+	// with a standard if/else.
 	let content;
-	if (reservations.length === 0) {
+	if (waiting) {
+		content = <Spinner />;
+	} else if (reservations.length === 0) {
 		content = (
 			<p className="text-muted">
 				You have no active reservations. Use the "Book" button in the navigation

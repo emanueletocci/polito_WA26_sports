@@ -1,4 +1,4 @@
-import { Container, Row, Col, Alert } from "react-bootstrap";
+import { Container, Row, Col, Alert, Spinner } from "react-bootstrap";
 import { useState, useEffect } from "react";
 
 import API from "../API.js";
@@ -19,8 +19,7 @@ import EquipmentTable from "./EquipmentTable.jsx";
  *   FacilityCard components) and the availability of every equipment type
  */
 function Home(props) {
-	// The prop is destructured here so that the effect below refers to this single
-	// function and not to the whole props object.
+	// The prop is destructured here
 	const { handleErrors } = props;
 
 	// facilityGroups: the facilities grouped by type, i.e.
@@ -30,9 +29,12 @@ function Home(props) {
 	// [{ id, name, facilityTypeId, facilityTypeName, availableQuantity, totalQuantity, minQuantity }, ...]
 	const [equipmentList, setEquipmentList] = useState([]);
 
-	// ---- Load the facilities and the equipment, once, when the page mounts ----
-	// The whole equipment list is requested ONCE here, and then distributed to the
-	// cards: this is why FacilityCard does not perform any request of its own.
+	// Two state to track whether the two fetches are still in progress. The page shows a spinner until both are completed, and then shows the content.
+	const [waitingFacilities, setWaitingFacilities] = useState(true);
+	const [waitingEquipment, setWaitingEquipment] = useState(true);
+
+	// The whole equipment list is requested once here, and then distributed to the
+	// cards.
 	useEffect(() => {
 		API.getFacilities()
 			.then((facilities) => {
@@ -41,19 +43,19 @@ function Home(props) {
 				const groups = groupFacilitiesByType(facilities);
 				setFacilityGroups(groups);
 			})
-			.catch((err) => handleErrors(err));
+			.catch((err) => handleErrors(err))
+			.finally(() => setWaitingFacilities(false));
 
 		API.getEquipment()
 			.then((equipment) => setEquipmentList(equipment))
-			.catch((err) => handleErrors(err));
-		// handleErrors is deliberately NOT listed among the dependencies: it is
-		// re-created at every render of App, so listing it would make these fetches
-		// run again at every render of the parent. Its behaviour never changes
-		// (it only calls setMessage), so the captured version is always equivalent.
+			.catch((err) => handleErrors(err))
+			.finally(() => setWaitingEquipment(false));
 	}, []);
 
-	// Whether to show the "guest" notice is decided before the return, with a
-	// standard if. It is shown only when the user is NOT logged in.
+	// A single boolean flag for both sections. The page shows a spinner until both fetches are completed, and then shows the content.
+	const waiting = waitingFacilities || waitingEquipment;
+
+	// If the user is not logged in, show a notice that he is browsing as guest and cannot book.
 	let guestAlert = null;
 	if (!props.loggedIn) {
 		guestAlert = (
@@ -62,6 +64,40 @@ function Home(props) {
 				you need to log in to book.
 			</Alert>
 		);
+	}
+
+	// The grid of the cards, or a spinner while the two lists are being loaded.
+	let facilitiesContent;
+	if (waiting) {
+		facilitiesContent = <Spinner />;
+	} else {
+		facilitiesContent = (
+			<Row xs={1} sm={2} lg={3} className="g-3 mb-5">
+				{/*
+					One FacilityCard per group of facilities. Every card also receives
+					the equipment of its own type, obtained by filtering the list that
+					has already been fetched.
+				*/}
+				{facilityGroups.map((group) => (
+					<Col key={group.facilityTypeId}>
+						<FacilityCard
+							group={group}
+							equipmentRules={equipmentList.filter(
+								(eq) => eq.facilityTypeId === group.facilityTypeId,
+							)}
+						/>
+					</Col>
+				))}
+			</Row>
+		);
+	}
+
+	// The availability table, or a spinner while it is being loaded.
+	let equipmentContent;
+	if (waiting) {
+		equipmentContent = <Spinner />;
+	} else {
+		equipmentContent = <EquipmentTable equipmentList={equipmentList} />;
 	}
 
 	return (
@@ -78,26 +114,10 @@ function Home(props) {
 			{guestAlert}
 
 			<h2 className="mb-3 pb-2 border-bottom">Facilities by type</h2>
-			<Row xs={1} sm={2} lg={3} className="g-3 mb-5">
-				{/*
-					One FacilityCard per group of facilities. Every card also receives
-					the equipment of its own type, obtained by filtering the list that
-					has already been fetched: no additional request is needed.
-				*/}
-				{facilityGroups.map((group) => (
-					<Col key={group.facilityTypeId}>
-						<FacilityCard
-							group={group}
-							equipmentRules={equipmentList.filter(
-								(eq) => eq.facilityTypeId === group.facilityTypeId,
-							)}
-						/>
-					</Col>
-				))}
-			</Row>
+			{facilitiesContent}
 
 			<h2 className="mb-3 pb-2 border-bottom">Equipment availability</h2>
-			<EquipmentTable equipmentList={equipmentList} />
+			{equipmentContent}
 		</Container>
 	);
 }
