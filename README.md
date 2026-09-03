@@ -73,19 +73,18 @@
 
 - `App` (in `App.jsx`): root component. It holds the authentication state and the message shown after every operation, and it defines all the routes.
 - `Layout` (in `Layout.jsx`): shell shared by every page, made of the navigation bar, the message of the last operation, and the content of the current route.
-- `Home` (in `Home.jsx`): public home page. It loads the facilities and the equipment once, and passes to every card the equipment of its own type.
-- `FacilityCard` (in `FacilityCard.jsx`): card of one facility type, with the free/total count, the codes of the free facilities, and the mandatory and optional equipment.
-- `EquipmentTable` (in `EquipmentTable.jsx`): table with the availability of every equipment type.
-- `Book` (in `Book.jsx`): page that creates a reservation. It handles the choice of the type, the manual or automatic choice of the facility, and the rules that depend on the score of the user.
-- `EquipmentSelection` and `EquipmentRow` (in `EquipmentSelection.jsx`): the card that chooses the equipment and the single line with the +/- controls. `EquipmentRow` is also used by the page that modifies a reservation.
+- `LoginForm` and `TotpForm` (in `Auth.jsx`): the form for email and password, and the form for the TOTP code, which is also where a negative score goes back to zero.
+- `Home` (in `Home.jsx`): public home page. It loads the facilities and the equipment once, shows them in a card per facility type and in an availability table.
+- `Book` (in `Book.jsx`): page that creates a reservation, with a card to choose the facility and a card to choose the equipment. It handles the manual/automatic choice of the facility and the rules that depend on the score of the user.
+- `EquipmentRow` (in `EquipmentRow.jsx`): one editable line of equipment, with the +/- controls. It holds no rule: the limits are computed by the parent, which is why it is shared by the booking page and the modification page.
 - `Reservations` (in `Reservations.jsx`): list of the reservations of the user, with the actions to modify and delete them.
-- `ReservationEdit` (in `ReservationEdit.jsx`): page that modifies the equipment of one reservation. The mandatory equipment is shown but locked.
-- `LoginForm` and `TotpForm` (in `Auth.jsx`): the form for email and password, and the form for the TOTP code.
-- `Navigation` (in `Navigation.jsx`): navigation bar, with the name and the score of the user and the links to the pages of the application.
+- `ReservationEdit` (in `ReservationEdit.jsx`): page that modifies the equipment of one reservation. Every item can be increased or decreased, but a mandatory one never below its minimum quantity.
+
+A detailed overview of React Components is available [here](_DOCS/react_components/react-components-overview.md).
 
 ## Screenshot
 
-![Screenshot of the homepage](./img/homepage_login.png)
+![Screenshot of the booking page](./img/booking.png)
 
 ## Users Credentials
 
@@ -94,6 +93,6 @@ The 2FA secret is the same for every user and it is stored separately for each o
 | Email | Password | Characteristics |
 | --- | --- | --- |
 | <s363290@studenti.polito.it> | Password1! | No reservation, score 0 |
-| <user2@example.com> | Password2! | One reservation (tennis court T1), score 0 |
+| <user2@example.com> | Password2! | One active reservation (tennis court T1), score 0 |
 | <user3@example.com> | Password3! | One active reservation (basketball court B1), one cancelled, score -1 |
 | <user4@example.com> | Password4! | Two active reservations (volleyball court V1, table tennis table P1), two cancelled, score -2 |
