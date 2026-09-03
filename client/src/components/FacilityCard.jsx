@@ -5,7 +5,7 @@ import { formatName } from "../utils.js";
 /**
  * FacilityCard
  *
- * Purely presentational component: it performs no request of its own. The
+ * Presentational component: it performs no request of its own. The
  * equipment of this facility type is fetched once by Home, together with the
  * whole list, and passed here already filtered.
  *
@@ -33,7 +33,9 @@ function FacilityCard(props) {
 	const mandatory = props.equipmentRules.filter((eq) => eq.minQuantity > 0);
 	const optional = props.equipmentRules.filter((eq) => eq.minQuantity === 0);
 
-	// ---- Text of the mandatory equipment ----
+	// -------------------------------------------------------------------------
+	// MANDATORY EQUIPMENT
+	// -------------------------------------------------------------------------
 	// With at least one item a single string like "Tennis Racket x2, Tennis Ball x3"
 	// is built, otherwise a placeholder is shown.
 	let mandatoryText;
@@ -45,7 +47,9 @@ function FacilityCard(props) {
 		mandatoryText = "N/A";
 	}
 
-	// ---- Text of the optional equipment ----
+	// -------------------------------------------------------------------------
+	// OPTIONAL EQUIPMENT
+	// -------------------------------------------------------------------------
 	let optionalText;
 	if (optional.length > 0) {
 		optionalText = optional.map((eq) => formatName(eq.name)).join(", ");
@@ -53,7 +57,9 @@ function FacilityCard(props) {
 		optionalText = "N/A";
 	}
 
-	// ---- Codes of the free facilities ----
+	// -------------------------------------------------------------------------
+	// FREE FACILITIES
+	// -------------------------------------------------------------------------
 	let freeCodesContent;
 	if (group.freeCodes.length > 0) {
 		freeCodesContent = group.freeCodes.map((code) => (
