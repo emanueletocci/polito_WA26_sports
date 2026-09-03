@@ -6,9 +6,7 @@ import { formatName } from "../utils.js";
  * EquipmentRow
  *
  * Presentational component for one line of equipment. It contains no business
- * rule: what the user is allowed to do is decided by the parent component and
- * passed here through canDecrease / canIncrease / readOnly. This is what makes
- * it reusable both when creating a reservation and when modifying one.
+ * rule.
  *
  * INPUT (props, passed as a single object):
  * - equipment: one equipment object { id, name, minQuantity, availableQuantity }
@@ -118,7 +116,10 @@ function EquipmentSelection(props) {
 	const mandatory = props.equipmentRules.filter((eq) => eq.minQuantity > 0);
 	const optional = props.equipmentRules.filter((eq) => eq.minQuantity === 0);
 
-	// ---- Mandatory section ----
+	// -------------------------------------------------------------------------
+	// MANDATORY SECTION
+	// -------------------------------------------------------------------------
+
 	// "-" is enabled only above the minimum, "+" only if extra items are allowed
 	// and there is still something available.
 	let mandatoryContent;
@@ -141,7 +142,10 @@ function EquipmentSelection(props) {
 		));
 	}
 
-	// ---- Optional section ----
+	// -------------------------------------------------------------------------
+	// OPTIONAL SECTION
+	// -------------------------------------------------------------------------
+
 	let optionalContent;
 	if (optional.length === 0) {
 		optionalContent = <p className="text-muted">N/A</p>;
