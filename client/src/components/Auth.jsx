@@ -9,7 +9,7 @@ import API from "../API.js";
  *
  * Form used to enter the 2FA (TOTP) code, after the email and the password have
  * already been verified. Completing this step also resets a negative score back
- * to zero, as required by the specification.
+ * to zero.
  *
  * INPUT (props, passed as a single object):
  * - props.totpSuccessful: function, called (with no argument) when the code has
@@ -33,14 +33,7 @@ function TotpForm(props) {
 	const navigate = useNavigate();
 
 	/**
-	 * doTotpVerify
-	 *
-	 * INPUT: none (it reads totpCode from the state of the component, through the
-	 * closure)
-	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). Its job is a SIDE EFFECT: it asks the server to verify
-	 *   the code and, depending on the outcome, updates the state or navigates.
+	 * Checks the 6-digit TOTP code and completes the 2FA step if it is valid.
 	 */
 	const doTotpVerify = () => {
 		API.totpVerify(totpCode)
@@ -64,7 +57,7 @@ function TotpForm(props) {
 					// Wait two seconds, so that the message can be read, then log out.
 					setTimeout(() => props.setLoggedIn(false), 2000);
 				} else {
-					// NB: a generic message must be used here, to avoid telling an
+					// A generic message is used here, to avoid telling an
 					// attacker why exactly the code was rejected.
 					setErrorMessage("Wrong code, please try again");
 				}
@@ -74,12 +67,8 @@ function TotpForm(props) {
 	/**
 	 * handleSubmit
 	 *
-	 * INPUT (params, positional):
+	 * INPUT (params):
 	 * - event: the (synthetic) form submit event
-	 *
-	 * OUTPUT (return value):
-	 * - none (undefined). It validates the code locally and then either calls
-	 *   doTotpVerify() or shows a validation message.
 	 */
 	const handleSubmit = (event) => {
 		// Prevent the browser's default behaviour (a full page reload on submit).
@@ -177,9 +166,6 @@ function LoginForm(props) {
 	 * OUTPUT (return value):
 	 * - none (undefined). It checks that the fields are not empty and then either
 	 *   calls props.login(credentials) or shows a validation message.
-	 *   NB: the content of the password is NOT checked here (length, characters):
-	 *   validating a password at login time would tell an attacker how the
-	 *   passwords of this application are made.
 	 */
 	const handleSubmit = (event) => {
 		// Prevent the browser's default behaviour (a full page reload on submit).
@@ -273,8 +259,6 @@ function LogoutButton(props) {
 
 /**
  * LoginButton
- *
- * INPUT: none (this component takes no props)
  *
  * OUTPUT (return value):
  * - JSX: a single "Login" button that navigates to "/login" when clicked
